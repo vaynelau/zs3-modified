@@ -197,15 +197,15 @@ class _CocoStuff(data.Dataset):
             image, label = self._transform(image, label, index[1])
         else:
             image, label = self._transform(image, label, False)
-            return image.astype(np.float32), label.astype(np.int64), str(image_id[1])
+            # return image.astype(np.float32), label.astype(np.int64), str(image_id[1])
 
         # print(index)
-        image = image.astype(np.float32)
-        label = label.astype(np.int64)
-        if self.split == 'train':
-            label += 1
-            _mask = label == 256
-            label[_mask] = 0
+#         image = image.astype(np.float32)
+#         label = label.astype(np.int64)
+#         if self.split == 'train':
+#             label += 1
+#             _mask = label == 256
+#             label[_mask] = 0
         label_emb = self.get_embeddings(label)
         label = label.astype(np.float32)
         return {'image': image, 'label': label, 'label_emb': label_emb}

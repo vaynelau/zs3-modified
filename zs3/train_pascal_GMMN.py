@@ -206,11 +206,6 @@ class Trainer:
                     sample["label"],
                     sample["label_emb"],
                 )
-                # image, target, embedding = (
-                #     sample["image"],
-                #     sample["label"],
-                #     sample["label_emb"],
-                # )
 #                 print('sample["image"]', sample["image"].size(), sample["image"].dtype)
 #                 print('sample["label"]', sample["label"].size(), sample["label"].dtype)
 #                 print('sample["label_emb"]', sample["label_emb"].size(), sample["label_emb"].dtype)
@@ -722,6 +717,7 @@ def main():
     trainer = Trainer(args)
     print("Starting Epoch:", trainer.args.start_epoch)
     print("Total Epoches:", trainer.args.epochs)
+#     trainer.validation(0, args)
     for epoch in range(trainer.args.start_epoch, trainer.args.epochs):
         trainer.training(epoch, args)
         if not trainer.args.no_val and epoch % args.eval_interval == (

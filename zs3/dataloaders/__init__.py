@@ -47,9 +47,10 @@ def get_split(cfg):
     novelset, seenset = [], range(train.shape[0])
     sampler = RandomImageSampler(seenset, novelset)
 
-    cls_map = np.array([cfg['ignore_index']]*(cfg['ignore_index']+1)).astype(np.int32)
-    for i, n in enumerate(list(seen_classes)):
-        cls_map[n] = i
+    cls_map = np.array([0]*256).astype(np.int32)
+    for n in list(seen_classes):
+        cls_map[n] = n
+    cls_map[255] = 255
     cls_map_test = np.array([cfg['ignore_index']]*(cfg['ignore_index']+1)).astype(np.int32)
     for i, n in enumerate(list(seen_novel_classes)):
         cls_map_test[n] = i
@@ -58,8 +59,16 @@ def get_split(cfg):
     visibility_mask[0] = cls_map.copy()
     for i, n in enumerate(list(novel_classes)):
         visibility_mask[i+1] = cls_map.copy()
-        visibility_mask[i+1][n] = seen_classes.shape[0] + i
-
+        visibility_mask[i+1][n] = seen_classes.shape[0] + i + 1
+#     print('seen_classes', seen_classes)
+#     print('novel_classes', novel_classes)
+#     print('all_labels', all_labels)
+#     print('visible_classes', visible_classes)
+#     print('visible_classes_test', visible_classes_test)
+#     print('visibility_mask', visibility_mask)
+#     print('train', train[:10], len(train))
+#     print('val', val[:10], len(val))
+    
     return seen_classes, novel_classes, all_labels, visible_classes, visible_classes_test, train, val, sampler, visibility_mask, cls_map, cls_map_test
 
 
