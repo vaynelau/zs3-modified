@@ -98,4 +98,10 @@ def get_parser():
         default=False,
         help="whether use nesterov (default: False)",
     )
+    parser.add_argument(
+        '--config',
+        type=str,
+        default='***.yaml',
+        help='configuration file for train/val',
+    )
     return parser

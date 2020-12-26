@@ -214,8 +214,10 @@ class ResNet(nn.Module):
         """
 
         pretrain_dict = torch.load(imagenet_pretrained_path)["state_dict"]
+        # print('pretrain_dict.keys()', pretrain_dict.keys())
         model_dict = {}
         state_dict = self.state_dict()
+        # print('state_dict.keys()', state_dict.keys())
         for k, v in pretrain_dict.items():
 
             k = k[7:]

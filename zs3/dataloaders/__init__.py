@@ -1,6 +1,66 @@
 from torch.utils.data import DataLoader
+import os
+import numpy as np
+import torch
 
 from zs3.dataloaders.datasets import combine_dbs, pascal, sbd, context
+
+from .cocostuff import CocoStuff10k, CocoStuff164k, LoaderZLS
+
+
+def get_dataset(name):
+    return {"cocostuff10k": CocoStuff10k, "cocostuff164k": CocoStuff164k, "LoaderZLS": LoaderZLS}[name]
+
+
+class RandomImageSampler(torch.utils.data.Sampler):
+    """
+    Samples classes randomly, then returns images corresponding to those classes.
+    """
+
+    def __init__(self, seenset, novelset):
+        self.data_index = []
+        for v in seenset:
+            self.data_index.append([v, 0])
+        for v, i in novelset:
+            self.data_index.append([v, i+1])
+
+    def __iter__(self):
+        return iter([self.data_index[i] for i in np.random.permutation(len(self.data_index))])
+
+    def __len__(self):
+        return len(self.data_index)
+
+
+def get_split(cfg):
+    dataset_path = os.path.join(cfg['datadir'], cfg['dataset'])
+    train = np.load(dataset_path + '/split/train_list.npy')
+    val = np.load(dataset_path + '/split/test_list.npy')
+
+    seen_classes = np.load(dataset_path + '/split/seen_cls.npy').astype(np.int32)
+    novel_classes = np.load(dataset_path + '/split/novel_cls.npy').astype(np.int32)
+    seen_novel_classes = np.concatenate((seen_classes, novel_classes), axis=0)
+    all_labels = np.genfromtxt(dataset_path + '/labels_refined.txt', delimiter='\t', usecols=1, dtype='str')
+
+    visible_classes = seen_classes
+    visible_classes_test = seen_novel_classes
+
+    novelset, seenset = [], range(train.shape[0])
+    sampler = RandomImageSampler(seenset, novelset)
+
+    cls_map = np.array([cfg['ignore_index']]*(cfg['ignore_index']+1)).astype(np.int32)
+    for i, n in enumerate(list(seen_classes)):
+        cls_map[n] = i
+    cls_map_test = np.array([cfg['ignore_index']]*(cfg['ignore_index']+1)).astype(np.int32)
+    for i, n in enumerate(list(seen_novel_classes)):
+        cls_map_test[n] = i
+
+    visibility_mask = {}
+    visibility_mask[0] = cls_map.copy()
+    for i, n in enumerate(list(novel_classes)):
+        visibility_mask[i+1] = cls_map.copy()
+        visibility_mask[i+1][n] = seen_classes.shape[0] + i
+
+    return seen_classes, novel_classes, all_labels, visible_classes, visible_classes_test, train, val, sampler, visibility_mask, cls_map, cls_map_test
 
 
 def make_data_loader(

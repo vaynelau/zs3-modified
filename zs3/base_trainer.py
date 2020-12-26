@@ -1,5 +1,5 @@
 from tqdm import tqdm
-
+import torch
 
 class BaseTrainer:
     def training(self, epoch):
@@ -8,8 +8,25 @@ class BaseTrainer:
         tbar = tqdm(self.train_loader)
         num_img_tr = len(self.train_loader)
         for i, sample in enumerate(tbar):
-            if len(sample["image"]) > 1:
-                image, target = sample["image"], sample["label"]
+#             print('sample', sample.keys())
+#             print(sample["image"].size(), sample["label"].size(), sample["image_name"])
+#             print('sample', sample[0].size(), sample[1].size())
+#             if len(sample["image"]) > 1:
+            if len(sample[0]) > 1:
+#                 image, target = sample["image"], sample["label"]
+                torch.set_printoptions(profile="full")
+                image, target = sample[0], sample[1]
+#                 target += 1
+#                 print('=====================================================')
+#                 print('target', target[0, 100:105, 100:120])
+#                 mask = target == 256
+#                 target[mask] = 0
+#                 print('target', target[0, 100:105, 100:120])
+#                 print('=====================================================')
+#                 print('image', image.size(), image[:, 0, 100:105, 100:120])
+#                 print('-----------------------------------------------------')
+#                 print('target', target.size(), target[:, 100:105])
+#                 print('=====================================================')
                 if self.args.cuda:
                     image, target = image.cuda(), target.cuda()
                 self.scheduler(self.optimizer, i, epoch, self.best_pred)
