@@ -213,7 +213,12 @@ class ResNet(nn.Module):
         pretrain_dict = model_zoo.load_url('https://download.pytorch.org/models/resnet101-5d3b4d8f.pth')
         """
 
-        pretrain_dict = torch.load(imagenet_pretrained_path)["state_dict"]
+        # pretrain_dict = torch.load(imagenet_pretrained_path)["state_dict"]
+        
+        if imagenet_pretrained_path.split('/')[-1] == 'spnet_cocostuff_init.pth':
+            pretrain_dict = torch.load(imagenet_pretrained_path)
+        else:
+            pretrain_dict = torch.load(imagenet_pretrained_path)["state_dict"]
         # print('pretrain_dict.keys()', pretrain_dict.keys())
         model_dict = {}
         state_dict = self.state_dict()

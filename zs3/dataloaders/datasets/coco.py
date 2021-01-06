@@ -1,34 +1,37 @@
 import os
+import os.path as osp
 import pathlib
-import pickle
+
 import numpy as np
+import scipy
 import torch
 from PIL import Image
 from torchvision import transforms
 
 from zs3.dataloaders import custom_transforms as tr
-from .base import BaseDataset, load_obj, lbl_contains_unseen
+from .base import BaseDataset, lbl_contains_unseen
 from zs3.tools import get_embedding
 
-PASCAL_DIR = pathlib.Path("./dataset/voc12")
+COCO_DIR = pathlib.Path("./dataset/cocostuff/")
 
 
-class VOCSegmentation(BaseDataset):
+class CocoSegmentation(BaseDataset):
     """
-    PascalVoc dataset
+    COCO-stuff dataset
     """
-    NUM_CLASSES = 20
+
+    NUM_CLASSES = 182
 
     def __init__(
-            self,
-            args,
-            base_dir=PASCAL_DIR,
-            split="train",
-            load_embedding=None,
-            w2c_size=600,
-            weak_label=False,
-            unseen_classes_idx_weak=[],
-            transform=True,
+        self,
+        args,
+        base_dir=COCO_DIR,
+        split="train",
+        load_embedding=None,
+        w2c_size=600,
+        weak_label=False,
+        unseen_classes_idx_weak=[],
+        transform=True,
     ):
         """
         :param base_dir: path to VOC dataset directory
@@ -45,6 +48,7 @@ class VOCSegmentation(BaseDataset):
             unseen_classes_idx_weak,
             transform,
         )
+
         self._image_dir = self._base_dir / "images"
         self._cat_dir = self._base_dir / "annotations"
 
@@ -57,11 +61,13 @@ class VOCSegmentation(BaseDataset):
             lines = np.load(self._base_dir / 'split/train_list.npy')  # train
         else:
             lines = np.load(self._base_dir / 'split/test_list.npy')  # eval
-        lines = [f.split("/")[-1].replace(".png", "") for f in lines]
+        lines = [[f.split("/")[-2], f.split("/")[-1].replace(".png", "")] for f in lines]
 
         seen_classes = torch.from_numpy(np.load(self._base_dir / 'split/seen_cls.npy').astype(np.int32))
         unseen_classes_idx = np.load(self._base_dir / 'split/novel_cls.npy').astype(np.int32)
         novel_classes = torch.from_numpy(np.load(self._base_dir / 'split/novel_cls.npy').astype(np.int32))
+        seen_classes += 1
+        novel_classes += 1
         seen_novel_classes = torch.cat((seen_classes, novel_classes), dim=0)
 
         self.cls_map = torch.tensor([255] * (255 + 1), dtype=torch.float32)
@@ -74,10 +80,10 @@ class VOCSegmentation(BaseDataset):
         print('self.cls_map', self.cls_map)
 
         for ii, line in enumerate(lines):
-            _image = self._image_dir / self.split / f"{line}.jpg"
-            _cat = self._cat_dir / self.split / f"{line}.png"
-            assert _image.is_file(), _image
-            assert _cat.is_file(), _cat
+            _image = self._image_dir / line[0] / f"{line[1]}.jpg"
+            _cat = self._cat_dir / line[0] / f"{line[1]}.png"
+            assert _image.is_file()
+            assert _cat.is_file()
 
             # if unseen classes and training split
             if len(args.unseen_classes_idx) > 0 and self.split == "train" and args.filter_unseen_classes:
@@ -93,7 +99,11 @@ class VOCSegmentation(BaseDataset):
         assert len(self.images) == len(self.categories)
 
         # Display stats
-        print(f"(pascal) Number of images in {split}: {len(self.images):d}")
+        print(
+            "(coco) Number of images in {}: {:d}, {:d} deleted".format(
+                split, len(self.images), len(lines) - len(self.images)
+            )
+        )
 
     def init_embeddings(self):
         embed_arr = get_embedding(self._base_dir)
@@ -110,7 +120,7 @@ class VOCSegmentation(BaseDataset):
                     has_unseen_class = True
             if has_unseen_class:
                 _target = Image.open(
-                    "weak_label_pascal_10_unseen_top_by_image_25.0/pascal/"
+                    "weak_label_context_10_unseen_top_by_image_75.0/pascal/"
                     + self.categories[index].stem
                     + ".jpg"
                 )
@@ -176,4 +186,4 @@ class VOCSegmentation(BaseDataset):
         return composed_transforms(sample)
 
     def __str__(self):
-        return f"VOC2012(split={self.split})"
+        return f"COCO(split={self.split})"

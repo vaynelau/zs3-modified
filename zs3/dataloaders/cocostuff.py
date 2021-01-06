@@ -148,8 +148,8 @@ class _CocoStuff(data.Dataset):
                 label = np.fliplr(label).copy()  # HW
         # HWC -> CHW
         image = image.transpose(2, 0, 1)
-        if(self.visibility_mask is not None):
-                #print ("novel {}".format(with_novel))
+        if (self.visibility_mask is not None):
+                # print ("novel {}".format(with_novel))
                 label = self.visibility_mask[with_novel][label]
         return image, label
 
@@ -193,19 +193,16 @@ class _CocoStuff(data.Dataset):
             else:
                 image_id = self.files[index]
             image, label = self._load_data(image_id)
+#         torch.set_printoptions(profile="full")
+#         print(torch.from_numpy(label))
+#         print('---------------------------')
         if isinstance(index, list):
             image, label = self._transform(image, label, index[1])
         else:
-            image, label = self._transform(image, label, False)
+            image, label = self._transform(image, label, 0)
             # return image.astype(np.float32), label.astype(np.int64), str(image_id[1])
 
         # print(index)
-#         image = image.astype(np.float32)
-#         label = label.astype(np.int64)
-#         if self.split == 'train':
-#             label += 1
-#             _mask = label == 256
-#             label[_mask] = 0
         label_emb = self.get_embeddings(label)
         label = label.astype(np.float32)
         return {'image': image, 'label': label, 'label_emb': label_emb}

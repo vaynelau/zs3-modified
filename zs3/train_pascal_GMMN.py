@@ -7,6 +7,7 @@ from torch import nn
 from tqdm import tqdm
 import yaml
 
+
 from zs3.dataloaders import make_data_loader, get_split, get_dataset
 from zs3.modeling.deeplab import DeepLab
 from zs3.modeling.gmmn import GMMNnetwork
@@ -38,66 +39,66 @@ class Trainer:
         """
             Get dataLoader
         """
-        config = get_config(args.config)
-        vals_cls, valu_cls, all_labels, visible_classes, visible_classes_test, train, val, sampler, visibility_mask, cls_map, cls_map_test = get_split(
-            config)
-        assert (visible_classes_test.shape[0] == config['dis']['out_dim_cls'] - 1)
+#         config = get_config(args.config)
+#         vals_cls, valu_cls, all_labels, visible_classes, visible_classes_test, train, val, sampler, visibility_mask, visibility_mask_test, cls_map, cls_map_test = get_split(config)
+#         assert (visible_classes_test.shape[0] == config['dis']['out_dim_cls'] - 1)
 
-        dataset = get_dataset(config['DATAMODE'])(
-            train=train,
-            test=None,
-            root=config['ROOT'],
-            split=config['SPLIT']['TRAIN'],
-            base_size=312,
-            crop_size=config['IMAGE']['SIZE']['TRAIN'],
-            mean=(config['IMAGE']['MEAN']['B'], config['IMAGE']['MEAN']['G'], config['IMAGE']['MEAN']['R']),
-            warp=config['WARP_IMAGE'],
-            scale=(0.5, 1.5),
-            flip=True,
-            visibility_mask=visibility_mask,
-            config=config
-        )
-        print('train dataset:', len(dataset))
+#         dataset = get_dataset(config['DATAMODE'])(
+#             train=train,
+#             test=None,
+#             root=config['ROOT'],
+#             split=config['SPLIT']['TRAIN'],
+#             base_size=312,
+#             crop_size=config['IMAGE']['SIZE']['TRAIN'],
+#             mean=(config['IMAGE']['MEAN']['B'], config['IMAGE']['MEAN']['G'], config['IMAGE']['MEAN']['R']),
+#             warp=config['WARP_IMAGE'],
+#             scale=(0.5, 1.5),
+#             flip=True,
+#             visibility_mask=visibility_mask_test,
+#             config=config
+#         )
+#         print('train dataset:', len(dataset))
         
-        loader = torch.utils.data.DataLoader(
-            dataset=dataset,
-            batch_size=config['BATCH_SIZE']['TRAIN'],
-            num_workers=config['NUM_WORKERS'],
-            sampler=sampler
-        )
+#         loader = torch.utils.data.DataLoader(
+#             dataset=dataset,
+#             batch_size=config['BATCH_SIZE']['TRAIN'],
+#             num_workers=config['NUM_WORKERS'],
+#             sampler=sampler
+#         )
         
-        dataset_test = get_dataset(config['DATAMODE'])(
-            train=None,
-            test=val,
-            root=config['ROOT'],
-            split=config['SPLIT']['TEST'],
-            base_size=312,
-            crop_size=config['IMAGE']['SIZE']['TEST'],
-            mean=(config['IMAGE']['MEAN']['B'], config['IMAGE']['MEAN']['G'], config['IMAGE']['MEAN']['R']),
-            warp=config['WARP_IMAGE'],
-            scale=None,
-            flip=False,
-            config=config
-        )
-        print('test dataset:', len(dataset_test))
+#         dataset_test = get_dataset(config['DATAMODE'])(
+#             train=None,
+#             test=val,
+#             root=config['ROOT'],
+#             split=config['SPLIT']['TEST'],
+#             base_size=312,
+#             crop_size=config['IMAGE']['SIZE']['TEST'],
+#             mean=(config['IMAGE']['MEAN']['B'], config['IMAGE']['MEAN']['G'], config['IMAGE']['MEAN']['R']),
+#             warp=config['WARP_IMAGE'],
+#             scale=None,
+#             flip=False,
+#             visibility_mask=visibility_mask_test,
+#             config=config
+#         )
+#         print('test dataset:', len(dataset_test))
         
-        loader_test = torch.utils.data.DataLoader(
-            dataset=dataset_test,
-            batch_size=config['BATCH_SIZE']['TEST'],
-            num_workers=config['NUM_WORKERS'],
-            shuffle=False
-        )
+#         loader_test = torch.utils.data.DataLoader(
+#             dataset=dataset_test,
+#             batch_size=config['BATCH_SIZE']['TEST'],
+#             num_workers=config['NUM_WORKERS'],
+#             shuffle=False
+#         )
         
-        self.train_loader = loader
-        self.val_loader = loader_test
-        self.nclass = 21
+#         self.train_loader = loader
+#         self.val_loader = loader_test
+#         self.nclass = 20
 
         # Define Dataloader
-#         kwargs = {"num_workers": args.workers, "pin_memory": True}
-#         (self.train_loader, self.val_loader, _, self.nclass,) = make_data_loader(
-#             args, load_embedding=args.load_embedding, w2c_size=args.w2c_size, **kwargs
-#         )
-#         print('self.nclass', self.nclass)
+        kwargs = {"num_workers": args.workers, "pin_memory": True}
+        (self.train_loader, self.val_loader, _, self.nclass,) = make_data_loader(
+            args, load_embedding=args.load_embedding, w2c_size=args.w2c_size, **kwargs
+        )
+        print('self.nclass', self.nclass)
 
         # Define network
         model = DeepLab(
@@ -378,7 +379,7 @@ class Trainer:
 
     def validation(self, epoch, args):
         class_names = [
-            "background",  # class 0
+#             "background",  # class 0
             "aeroplane",  # class 1
             "bicycle",  # class 2
             "bird",  # class 3
@@ -559,7 +560,7 @@ def main():
     parser.add_argument(
         "--use-sbd",
         action="store_true",
-        default=True,
+        default=False,
         help="whether to use SBD dataset (default: True)",
     )
     parser.add_argument("--base-size", type=int, default=312, help="base image size")
@@ -600,7 +601,7 @@ def main():
     parser.add_argument(
         "--resume",
         type=str,
-        default="checkpoint/deeplab_pretrained_pascal_voc_02_unseen.pth.tar",
+        default="checkpoint/190_model.pth.tar",
         help="put the path to resuming file if needed",
     )
 
@@ -621,7 +622,7 @@ def main():
     parser.add_argument("--unseen_classes_idx", type=int, default=[])
 
     ### FOR METRIC COMPUTATION IN ORDER TO GET PERFORMANCES FOR TWO SETS
-    seen_classes_idx_metric = np.arange(21)
+    seen_classes_idx_metric = np.arange(20)
 
     # 2 unseen
     # unseen_classes_idx_metric = [10, 14]
@@ -634,7 +635,7 @@ def main():
     # 10 unseen
     # unseen_classes_idx_metric = [10, 14, 1, 18, 8, 20, 19, 5, 9, 16]
     # 5 unseen
-    unseen_classes_idx_metric = [16, 17, 18, 19, 20]
+    unseen_classes_idx_metric = [15, 16, 17, 18, 19]
     
     seen_classes_idx_metric = np.delete(
         seen_classes_idx_metric, unseen_classes_idx_metric

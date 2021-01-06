@@ -1,8 +1,9 @@
 import os
-
+import json
 import numpy as np
 import torch
 from tqdm import tqdm
+
 
 from zs3.dataloaders import make_data_loader
 from zs3.modeling.deeplab import DeepLab
@@ -17,6 +18,7 @@ from zs3.utils.summaries import TensorboardSummary
 from zs3.parsing import get_parser
 from zs3.exp_data import CLASSES_NAMES
 from zs3.base_trainer import BaseTrainer
+from zs3.tools import logWritter, scores_gzsl, get_split, get_config
 
 
 class Trainer(BaseTrainer):
@@ -30,11 +32,28 @@ class Trainer(BaseTrainer):
         self.summary = TensorboardSummary(self.saver.experiment_dir)
         self.writer = self.summary.create_summary()
 
+        """
+            Get dataLoader
+        """
+        config = get_config(args.config)
+        vals_cls, valu_cls, all_labels, visible_classes, visible_classes_test, train, val, sampler, _, cls_map, cls_map_test = get_split(config)
+        assert (visible_classes_test.shape[0] == config['dis']['out_dim_cls'] - 1)
+        print('seen_classes', vals_cls)
+        print('novel_classes', valu_cls)
+        print('all_labels', all_labels)
+        print('visible_classes', visible_classes)
+        print('visible_classes_test', visible_classes_test)
+        print('train', train[:10], len(train))
+        print('val', val[:10], len(val))
+        print('cls_map', cls_map)
+        print('cls_map_test', cls_map_test)
+
         # Define Dataloader
         kwargs = {"num_workers": args.workers, "pin_memory": True}
         (self.train_loader, self.val_loader, _, self.nclass,) = make_data_loader(
             args, **kwargs
         )
+        print('self.nclass', self.nclass)
 
         # Define network
         model = DeepLab(
@@ -112,11 +131,14 @@ class Trainer(BaseTrainer):
         if args.ft:
             args.start_epoch = 0
 
-    def validation(self, epoch):
+    def validation(self, epoch, args):
         self.model.eval()
         self.evaluator.reset()
         tbar = tqdm(self.val_loader, desc="\r")
         test_loss = 0.0
+        targets, outputs = [], []
+        log_file = './logs_context_step_1.txt'
+        logger = logWritter(log_file)
         for i, sample in enumerate(tbar):
             image, target = sample["image"], sample["label"]
             if self.args.cuda:
@@ -127,10 +149,39 @@ class Trainer(BaseTrainer):
             test_loss += loss.item()
             tbar.set_description("Test loss: %.3f" % (test_loss / (i + 1)))
             pred = output.data.cpu().numpy()
-            target = target.cpu().numpy()
+            target = target.cpu().numpy().astype(np.int64)
             pred = np.argmax(pred, axis=1)
+            # print('target', target.shape, target.dtype)
+            # print('pred', pred.shape, pred.dtype)
+            for o, t in zip(pred, target):
+                outputs.append(o)
+                targets.append(t)
             # Add batch sample into evaluator
             self.evaluator.add_batch(target, pred)
+
+        config = get_config(args.config)
+        vals_cls, valu_cls, all_labels, visible_classes, visible_classes_test, train, val, sampler, _, cls_map, cls_map_test = get_split(
+            config)
+        assert (visible_classes_test.shape[0] == config['dis']['out_dim_cls'] - 1)
+        score, class_iou = scores_gzsl(targets, outputs, n_class=len(visible_classes_test),
+                                       seen_cls=cls_map_test[vals_cls], unseen_cls=cls_map_test[valu_cls])
+
+        print("Test results:")
+        logger.write("Test results:")
+
+        for k, v in score.items():
+            print(k + ': ' + json.dumps(v))
+            logger.write(k + ': ' + json.dumps(v))
+
+        score["Class IoU"] = {}
+        visible_classes_test = sorted(visible_classes_test)
+        for i in range(len(visible_classes_test)):
+            score["Class IoU"][all_labels[visible_classes_test[i]]] = class_iou[i]
+        print("Class IoU: " + json.dumps(score["Class IoU"]))
+        logger.write("Class IoU: " + json.dumps(score["Class IoU"]))
+
+        print("Test finished.\n\n")
+        logger.write("Test finished.\n\n")
 
         # Fast test during the training
         Acc = self.evaluator.Pixel_Accuracy()
@@ -231,7 +282,7 @@ def main():
     parser.add_argument(
         "--checkname",
         type=str,
-        default="context_2_unseen",
+        default="context_4_unseen_filter_unseen_classes",
         help="set the checkpoint name",
     )
 
@@ -248,22 +299,28 @@ def main():
     )
 
     # 2 unseen
-    unseen_names = ["cow", "motorbike"]
-    # 4 unseen
-    # unseen_names = ['cow', 'motorbike', 'sofa', 'cat']
+    # unseen_names = ["cow", "motorbike"]
     # 6 unseen
     # unseen_names = ['cow', 'motorbike', 'sofa', 'cat', 'boat', 'fence']
     # 8 unseen
     # unseen_names = ['cow', 'motorbike', 'sofa', 'cat', 'boat', 'fence', 'bird', 'tvmonitor']
     # 10 unseen
     # unseen_names = ['cow', 'motorbike', 'sofa', 'cat', 'boat', 'fence', 'bird', 'tvmonitor', 'aeroplane', 'keyboard']
-
+    # 4 unseen
+    unseen_names = ['cow', 'motorbike', 'sofa', 'cat']
     unseen_classes_idx = []
     for name in unseen_names:
         unseen_classes_idx.append(CLASSES_NAMES.index(name))
-    print(unseen_classes_idx)
-    # all classes
+    print('unseen_classes_idx', unseen_classes_idx)
+    
     parser.add_argument("--unseen_classes_idx", type=int, default=unseen_classes_idx)
+    parser.add_argument(
+        "--filter_unseen_classes",
+        type=bool,
+        default=True,
+        help="filter unseen classes",
+    )
+    
     args = parser.parse_args()
     args.cuda = not args.no_cuda and torch.cuda.is_available()
     if args.cuda:
@@ -282,7 +339,6 @@ def main():
             "coco": 30,
             "cityscapes": 200,
             "pascal": 50,
-            "pascal": 150,
         }
         args.epochs = epoches[args.dataset.lower()]
 
@@ -307,12 +363,13 @@ def main():
     trainer = Trainer(args)
     print("Starting Epoch:", trainer.args.start_epoch)
     print("Total Epoches:", trainer.args.epochs)
+    # trainer.validation(trainer.args.start_epoch, args)
     for epoch in range(trainer.args.start_epoch, trainer.args.epochs):
         trainer.training(epoch)
         if not trainer.args.no_val and epoch % args.eval_interval == (
             args.eval_interval - 1
         ):
-            trainer.validation(epoch)
+            trainer.validation(epoch, args)
     trainer.writer.close()
 
 

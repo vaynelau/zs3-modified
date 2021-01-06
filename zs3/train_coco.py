@@ -4,6 +4,7 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
+
 from zs3.dataloaders import make_data_loader
 from zs3.modeling.deeplab import DeepLab
 from zs3.modeling.sync_batchnorm.replicate import patch_replication_callback
@@ -11,15 +12,16 @@ from zs3.dataloaders.datasets import DATASETS_DIRS
 from zs3.utils.calculate_weights import calculate_weigths_labels
 from zs3.utils.loss import SegmentationLosses
 from zs3.utils.lr_scheduler import LR_Scheduler
-from zs3.utils.metrics import Evaluator, Evaluator_seen_unseen
+from zs3.utils.metrics import Evaluator
 from zs3.utils.saver import Saver
 from zs3.utils.summaries import TensorboardSummary
 from zs3.parsing import get_parser
-from zs3.exp_data import CLASSES_NAMES
+from zs3.exp_data import COCO_CLASSES_NAMES
+from zs3.base_trainer import BaseTrainer
 from zs3.tools import logWritter, scores_gzsl, get_split, get_config
 
 
-class Trainer:
+class Trainer(BaseTrainer):
     def __init__(self, args):
         self.args = args
 
@@ -29,10 +31,23 @@ class Trainer:
         # Define Tensorboard Summary
         self.summary = TensorboardSummary(self.saver.experiment_dir)
         self.writer = self.summary.create_summary()
-#         config = get_config(args.config)
-#         vals_cls, valu_cls, all_labels, visible_classes, visible_classes_test, train, val, sampler, _, cls_map, cls_map_test = get_split(config)
-#         assert (visible_classes_test.shape[0] == config['dis']['out_dim_cls'] - 1)
-        
+
+        """
+            Get dataLoader
+        """
+        config = get_config(args.config)
+        vals_cls, valu_cls, all_labels, visible_classes, visible_classes_test, train, val, sampler, _, cls_map, cls_map_test = get_split(config)
+        assert (visible_classes_test.shape[0] == config['dis']['out_dim_cls'] - 1)
+        print('seen_classes', vals_cls)
+        print('novel_classes', valu_cls)
+        print('all_labels', all_labels)
+        print('visible_classes', visible_classes)
+        print('visible_classes_test', visible_classes_test)
+        print('train', train[:10], len(train))
+        print('val', val[:10], len(val))
+        print('cls_map', cls_map)
+        print('cls_map_test', cls_map_test)
+
         # Define Dataloader
         kwargs = {"num_workers": args.workers, "pin_memory": True}
         (self.train_loader, self.val_loader, _, self.nclass,) = make_data_loader(
@@ -40,13 +55,16 @@ class Trainer:
         )
         print('self.nclass', self.nclass)
 
+        # Define network
         model = DeepLab(
             num_classes=self.nclass,
             output_stride=args.out_stride,
             sync_bn=args.sync_bn,
             freeze_bn=args.freeze_bn,
+            pretrained=args.imagenet_pretrained,
             imagenet_pretrained_path=args.imagenet_pretrained_path,
         )
+
         train_params = [
             {"params": model.get_1x_lr_params(), "lr": args.lr},
             {"params": model.get_10x_lr_params(), "lr": args.lr * 10},
@@ -64,9 +82,8 @@ class Trainer:
         # whether to use class balanced weights
         if args.use_balanced_weights:
             classes_weights_path = (
-                    DATASETS_DIRS[args.dataset] / args.dataset + "_classes_weights.npy"
+                DATASETS_DIRS[args.dataset] / args.dataset + "_classes_weights.npy"
             )
-
             if os.path.isfile(classes_weights_path):
                 weight = np.load(classes_weights_path)
             else:
@@ -82,13 +99,7 @@ class Trainer:
         self.model, self.optimizer = model, optimizer
 
         # Define Evaluator
-        self.evaluator = Evaluator(
-            self.nclass, args.seen_classes_idx_metric, args.unseen_classes_idx_metric
-        )
-        self.evaluator_seen_unseen = Evaluator_seen_unseen(
-            self.nclass, args.unseen_classes_idx_metric
-        )
-
+        self.evaluator = Evaluator(self.nclass)
         # Define lr scheduler
         self.scheduler = LR_Scheduler(
             args.lr_scheduler, args.lr, args.epochs, len(self.train_loader)
@@ -107,28 +118,12 @@ class Trainer:
                 raise RuntimeError(f"=> no checkpoint found at '{args.resume}'")
             checkpoint = torch.load(args.resume)
             args.start_epoch = checkpoint["epoch"]
-
-            if args.random_last_layer:
-                checkpoint["state_dict"]["decoder.pred_conv.weight"] = torch.rand(
-                    (
-                        self.nclass,
-                        checkpoint["state_dict"]["decoder.pred_conv.weight"].shape[1],
-                        checkpoint["state_dict"]["decoder.pred_conv.weight"].shape[2],
-                        checkpoint["state_dict"]["decoder.pred_conv.weight"].shape[3],
-                    )
-                )
-                checkpoint["state_dict"]["decoder.pred_conv.bias"] = torch.rand(
-                    self.nclass
-                )
-
             if args.cuda:
                 self.model.module.load_state_dict(checkpoint["state_dict"])
             else:
                 self.model.load_state_dict(checkpoint["state_dict"])
-
             if not args.ft:
-                if not args.nonlinear_last_layer:
-                    self.optimizer.load_state_dict(checkpoint["optimizer"])
+                self.optimizer.load_state_dict(checkpoint["optimizer"])
             self.best_pred = checkpoint["best_pred"]
             print(f"=> loaded checkpoint '{args.resume}' (epoch {checkpoint['epoch']})")
 
@@ -137,57 +132,23 @@ class Trainer:
             args.start_epoch = 0
 
     def validation(self, epoch, args):
-        # class_names = CLASSES_NAMES[:21]
-        class_names = [
-            #             "background",  # class 0
-            "aeroplane",  # class 1
-            "bicycle",  # class 2
-            "bird",  # class 3
-            "boat",  # class 4
-            "bottle",  # class 5
-            "bus",  # class 6
-            "car",  # class 7
-            "cat",  # class 8
-            "chair",  # class 9
-            "cow",  # class 10
-            "diningtable",  # class 11
-            "dog",  # class 12
-            "horse",  # class 13
-            "motorbike",  # class 14
-            "person",  # class 15
-            "potted plant",  # class 16
-            "sheep",  # class 17
-            "sofa",  # class 18
-            "train",  # class 19
-            "tv/monitor",  # class 20
-        ]
         self.model.eval()
         self.evaluator.reset()
-        all_target = []
-        all_pred = []
-        all_pred_unseen = []
         tbar = tqdm(self.val_loader, desc="\r")
         test_loss = 0.0
         targets, outputs = [], []
-        log_file = './logs_test.txt'
+        log_file = './logs_context_step_1.txt'
         logger = logWritter(log_file)
         for i, sample in enumerate(tbar):
             image, target = sample["image"], sample["label"]
             if self.args.cuda:
                 image, target = image.cuda(), target.cuda()
             with torch.no_grad():
-                if args.nonlinear_last_layer:
-                    output = self.model(image, image.size()[2:])
-                else:
-                    output = self.model(image)
+                output = self.model(image)
             loss = self.criterion(output, target)
             test_loss += loss.item()
             tbar.set_description("Test loss: %.3f" % (test_loss / (i + 1)))
             pred = output.data.cpu().numpy()
-            #             print('target', target.size())
-            #             print('output', output.size())
-
-            pred_unseen = pred.copy()
             target = target.cpu().numpy().astype(np.int64)
             pred = np.argmax(pred, axis=1)
             # print('target', target.shape, target.dtype)
@@ -195,9 +156,12 @@ class Trainer:
             for o, t in zip(pred, target):
                 outputs.append(o)
                 targets.append(t)
+            # Add batch sample into evaluator
+            self.evaluator.add_batch(target, pred)
 
         config = get_config(args.config)
-        vals_cls, valu_cls, all_labels, visible_classes, visible_classes_test, train, val, sampler, _, cls_map, cls_map_test = get_split(config)
+        vals_cls, valu_cls, all_labels, visible_classes, visible_classes_test, train, val, sampler, _, cls_map, cls_map_test = get_split(
+            config)
         assert (visible_classes_test.shape[0] == config['dis']['out_dim_cls'] - 1)
         score, class_iou = scores_gzsl(targets, outputs, n_class=len(visible_classes_test),
                                        seen_cls=cls_map_test[vals_cls], unseen_cls=cls_map_test[valu_cls])
@@ -210,6 +174,7 @@ class Trainer:
             logger.write(k + ': ' + json.dumps(v))
 
         score["Class IoU"] = {}
+        visible_classes_test = sorted(visible_classes_test)
         for i in range(len(visible_classes_test)):
             score["Class IoU"][all_labels[visible_classes_test[i]]] = class_iou[i]
         print("Class IoU: " + json.dumps(score["Class IoU"]))
@@ -218,80 +183,54 @@ class Trainer:
         print("Test finished.\n\n")
         logger.write("Test finished.\n\n")
 
+        # Fast test during the training
+        Acc = self.evaluator.Pixel_Accuracy()
+        Acc_class, Acc_class_by_class = self.evaluator.Pixel_Accuracy_Class()
+        mIoU, mIoU_by_class = self.evaluator.Mean_Intersection_over_Union()
+        FWIoU = self.evaluator.Frequency_Weighted_Intersection_over_Union()
+        self.writer.add_scalar("val/total_loss_epoch", test_loss, epoch)
+        self.writer.add_scalar("val/mIoU", mIoU, epoch)
+        self.writer.add_scalar("val/Acc", Acc, epoch)
+        self.writer.add_scalar("val/Acc_class", Acc_class, epoch)
+        self.writer.add_scalar("val/fwIoU", FWIoU, epoch)
+        print("Validation:")
+        print(
+            "[Epoch: %d, numImages: %5d]"
+            % (epoch, i * self.args.batch_size + image.data.shape[0])
+        )
+        print(f"Acc:{Acc}, Acc_class:{Acc_class}, mIoU:{mIoU}, fwIoU: {FWIoU}")
+        print(f"Loss: {test_loss:.3f}")
 
-#             pred_unseen[:, args.seen_classes_idx_metric] = float("-inf")
-#             pred_unseen = np.argmax(pred_unseen, axis=1)
+        for i, (class_name, acc_value, mIoU_value) in enumerate(
+            zip(COCO_CLASSES_NAMES, Acc_class_by_class, mIoU_by_class)
+        ):
+            self.writer.add_scalar("Acc_by_class/" + class_name, acc_value, epoch)
+            self.writer.add_scalar("mIoU_by_class/" + class_name, mIoU_value, epoch)
+            print(COCO_CLASSES_NAMES[i], "- acc:", acc_value, " mIoU:", mIoU_value)
 
-#             # Add batch sample into evaluator
-#             self.evaluator.add_batch(target, pred)
-
-#             all_target.append(target)
-#             all_pred.append(pred)
-#             all_pred_unseen.append(pred_unseen)
-
-# Fast test during the training
-#         Acc, Acc_seen, Acc_unseen = self.evaluator.Pixel_Accuracy()
-#         (
-#             Acc_class,
-#             Acc_class_by_class,
-#             Acc_class_seen,
-#             Acc_class_unseen,
-#         ) = self.evaluator.Pixel_Accuracy_Class()
-#         (
-#             mIoU,
-#             mIoU_by_class,
-#             mIoU_seen,
-#             mIoU_unseen,
-#         ) = self.evaluator.Mean_Intersection_over_Union()
-#         (
-#             FWIoU,
-#             FWIoU_seen,
-#             FWIoU_unseen,
-#         ) = self.evaluator.Frequency_Weighted_Intersection_over_Union()
-#         self.writer.add_scalar("val_overall/total_loss_epoch", test_loss, epoch)
-#         self.writer.add_scalar("val_overall/mIoU", mIoU, epoch)
-#         self.writer.add_scalar("val_overall/Acc", Acc, epoch)
-#         self.writer.add_scalar("val_overall/Acc_class", Acc_class, epoch)
-#         self.writer.add_scalar("val_overall/fwIoU", FWIoU, epoch)
-
-#         self.writer.add_scalar("val_seen/mIoU", mIoU_seen, epoch)
-#         self.writer.add_scalar("val_seen/Acc", Acc_seen, epoch)
-#         self.writer.add_scalar("val_seen/Acc_class", Acc_class_seen, epoch)
-#         self.writer.add_scalar("val_seen/fwIoU", FWIoU_seen, epoch)
-
-#         self.writer.add_scalar("val_unseen/mIoU", mIoU_unseen, epoch)
-#         self.writer.add_scalar("val_unseen/Acc", Acc_unseen, epoch)
-#         self.writer.add_scalar("val_unseen/Acc_class", Acc_class_unseen, epoch)
-#         self.writer.add_scalar("val_unseen/fwIoU", FWIoU_unseen, epoch)
-
-#         print("Validation:")
-#         print(
-#             "[Epoch: %d, numImages: %5d]"
-#             % (epoch, i * self.args.batch_size + image.data.shape[0])
-#         )
-#         print(f"Loss: {test_loss:.3f}")
-#         print(f"Overall: Acc:{Acc}, Acc_class:{Acc_class}, mIoU:{mIoU}, fwIoU: {FWIoU}")
-#         print(
-#             "Seen: Acc:{}, Acc_class:{}, mIoU:{}, fwIoU: {}".format(
-#                 Acc_seen, Acc_class_seen, mIoU_seen, FWIoU_seen
-#             )
-#         )
-#         print(
-#             "Unseen: Acc:{}, Acc_class:{}, mIoU:{}, fwIoU: {}".format(
-#                 Acc_unseen, Acc_class_unseen, mIoU_unseen, FWIoU_unseen
-#             )
-#         )
-
-#         for class_name, acc_value, mIoU_value in zip(
-#             class_names, Acc_class_by_class, mIoU_by_class
-#         ):
-#             self.writer.add_scalar("Acc_by_class/" + class_name, acc_value, epoch)
-#             self.writer.add_scalar("mIoU_by_class/" + class_name, mIoU_value, epoch)
-#             print(class_name, "- acc:", acc_value, " mIoU:", mIoU_value)
+        new_pred = mIoU
+        is_best = True
+        self.best_pred = new_pred
+        self.saver.save_checkpoint(
+            {
+                "epoch": epoch + 1,
+                "state_dict": self.model.module.state_dict(),
+                "optimizer": self.optimizer.state_dict(),
+                "best_pred": self.best_pred,
+            },
+            is_best,
+        )
 
 
 def main():
     parser = get_parser()
+    parser.add_argument(
+        "--imagenet_pretrained",
+        type=bool,
+        default=True,
+        help="imagenet pretrained backbone",
+    )
+
     parser.add_argument(
         "--out-stride", type=int, default=16, help="network output stride (default: 8)"
     )
@@ -300,19 +239,13 @@ def main():
     parser.add_argument(
         "--dataset",
         type=str,
-        default="pascal",
-        choices=["pascal", "coco", "cityscapes"],
+        default="coco",
+        choices=["pascal", "coco", "cityscapes", "context"],
         help="dataset name (default: pascal)",
     )
 
-    parser.add_argument(
-        "--use-sbd",
-        action="store_true",
-        default=False,
-        help="whether to use SBD dataset (default: True)",
-    )
-    parser.add_argument("--base-size", type=int, default=513, help="base image size")
-    parser.add_argument("--crop-size", type=int, default=513, help="crop image size")
+    parser.add_argument("--base-size", type=int, default=312, help="base image size")
+    parser.add_argument("--crop-size", type=int, default=312, help="crop image size")
     parser.add_argument(
         "--loss-type",
         type=str,
@@ -326,7 +259,7 @@ def main():
     parser.add_argument(
         "--epochs",
         type=int,
-        default=300,
+        default=30,
         metavar="N",
         help="number of epochs to train (default: auto)",
     )
@@ -335,68 +268,62 @@ def main():
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=8,
+        default=16,
         metavar="N",
         help="input batch size for training (default: auto)",
-    )
-    # cuda, seed and logging
-    # checking point
-    parser.add_argument(
-        "--imagenet_pretrained_path",
-        type=str,
-        default="checkpoint/resnet_backbone_pretrained_imagenet_wo_pascalvoc.pth.tar",
     )
     # checking point
     parser.add_argument(
         "--resume",
         type=str,
-        default="run/pascal/gmmn_pascal_w2c300_linear_weighted100_hs256_2_unseen/experiment_0/26_model.pth.tar",
+        default=None,
         help="put the path to resuming file if needed",
     )
+    parser.add_argument(
+        "--checkname",
+        type=str,
+        default="coco_15_unseen_no_filtering",
+        help="set the checkpoint name",
+    )
 
-    parser.add_argument("--checkname", type=str, default="pascal_eval")
+    parser.add_argument(
+        "--imagenet_pretrained_path",
+        type=str,
+        default="checkpoint/spnet_cocostuff_init.pth",
+        help="set the checkpoint name",
+    )
 
     # evaluation option
     parser.add_argument(
-        "--eval-interval", type=int, default=5, help="evaluation interval (default: 1)"
+        "--eval-interval", type=int, default=1, help="evaluation interval (default: 1)"
     )
-    ### FOR IMAGE SELECTION IN ORDER TO TAKE OFF IMAGE WITH UNSEEN CLASSES FOR TRAINING AND VALIDATION
-    # keep empty
-    parser.add_argument("--unseen_classes_idx", type=int, default=[])
-
-    ### FOR METRIC COMPUTATION IN ORDER TO GET PERFORMANCES FOR TWO SETS
-    seen_classes_idx_metric = np.arange(20)
 
     # 2 unseen
-    unseen_classes_idx_metric = [10, 14]
+    # unseen_names = ["cow", "motorbike"]
     # 4 unseen
-    # unseen_classes_idx_metric = [10, 14, 1, 18]
+    # unseen_names = ['cow', 'motorbike', 'sofa', 'cat']
     # 6 unseen
-    # unseen_classes_idx_metric = [10, 14, 1, 18, 8, 20]
+    # unseen_names = ['cow', 'motorbike', 'sofa', 'cat', 'boat', 'fence']
     # 8 unseen
-    # unseen_classes_idx_metric = [10, 14, 1, 18, 8, 20, 19, 5]
+    # unseen_names = ['cow', 'motorbike', 'sofa', 'cat', 'boat', 'fence', 'bird', 'tvmonitor']
     # 10 unseen
-    # unseen_classes_idx_metric = [10, 14, 1, 18, 8, 20, 19, 5, 9, 16]
-    # 5 unseen
-    unseen_classes_idx_metric = [15, 16, 17, 18, 19]
+    # unseen_names = ['cow', 'motorbike', 'sofa', 'cat', 'boat', 'fence', 'bird', 'tvmonitor', 'aeroplane', 'keyboard']
 
-    seen_classes_idx_metric = np.delete(
-        seen_classes_idx_metric, unseen_classes_idx_metric
-    ).tolist()
+    # 15 unseen
+    unseen_names = ['frisbee', 'skateboard', 'cardboard', 'carrot', 'scissors', 'suitcase', 'giraffe', 'cow', 'road', 'wall-concrete', 'tree', 'grass', 'river', 'clouds', 'playingfield']
+    unseen_classes_idx = []
+    for name in unseen_names:
+        unseen_classes_idx.append(COCO_CLASSES_NAMES.index(name))
+    print('unseen_classes_idx', unseen_classes_idx)
+    
+    parser.add_argument("--unseen_classes_idx", type=int, default=unseen_classes_idx)
     parser.add_argument(
-        "--seen_classes_idx_metric", type=int, default=seen_classes_idx_metric
+        "--filter_unseen_classes",
+        type=bool,
+        default=False,
+        help="filter unseen classes",
     )
-    parser.add_argument(
-        "--unseen_classes_idx_metric", type=int, default=unseen_classes_idx_metric
-    )
-
-    parser.add_argument(
-        "--nonlinear_last_layer", type=bool, default=False, help="non linear prediction"
-    )
-    parser.add_argument(
-        "--random_last_layer", type=bool, default=False, help="randomly init last layer"
-    )
-
+    
     args = parser.parse_args()
     args.cuda = not args.no_cuda and torch.cuda.is_available()
     if args.cuda:
@@ -439,7 +366,14 @@ def main():
     trainer = Trainer(args)
     print("Starting Epoch:", trainer.args.start_epoch)
     print("Total Epoches:", trainer.args.epochs)
-    trainer.validation(0, args)
+#     trainer.validation(0, args)
+    for epoch in range(trainer.args.start_epoch, trainer.args.epochs):
+        trainer.training(epoch)
+        if not trainer.args.no_val and epoch % args.eval_interval == (
+            args.eval_interval - 1
+        ):
+            trainer.validation(epoch, args)
+    trainer.writer.close()
 
 
 if __name__ == "__main__":

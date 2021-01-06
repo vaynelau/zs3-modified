@@ -4,14 +4,15 @@ import pathlib
 
 import numpy as np
 import scipy
+import torch
 from PIL import Image
 from torchvision import transforms
 
 from zs3.dataloaders import custom_transforms as tr
 from .base import BaseDataset, lbl_contains_unseen
+from zs3.tools import get_embedding
 
-
-CONTEXT_DIR = pathlib.Path("./data/context/")
+CONTEXT_DIR = pathlib.Path("./dataset/context/")
 
 
 class ContextSegmentation(BaseDataset):
@@ -19,7 +20,7 @@ class ContextSegmentation(BaseDataset):
     PascalVoc dataset
     """
 
-    NUM_CLASSES = 60
+    NUM_CLASSES = 33
 
     def __init__(
         self,
@@ -27,7 +28,7 @@ class ContextSegmentation(BaseDataset):
         base_dir=CONTEXT_DIR,
         split="train",
         load_embedding=None,
-        w2c_size=300,
+        w2c_size=600,
         weak_label=False,
         unseen_classes_idx_weak=[],
         transform=True,
@@ -48,51 +49,45 @@ class ContextSegmentation(BaseDataset):
             transform,
         )
 
-        self._image_dir = self._base_dir / "pascal/VOCdevkit/VOC2012/JPEGImages"
-        self._cat_dir = self._base_dir / "full_annotations/trainval"
+        self._image_dir = self._base_dir / "images"
+        self._cat_dir = self._base_dir / "annotations"
 
         self.unseen_classes_idx_weak = unseen_classes_idx_weak
-
 
         self.im_ids = []
         self.categories = []
 
-        self.labels_459 = [
-            label.decode().replace(" ", "")
-            for idx, label in np.genfromtxt(
-                osp.join(self._base_dir, "full_annotations/labels.txt"),
-                delimiter=":",
-                dtype=None,
-            )
-        ]
-        self.labels_59 = [
-            label.decode().replace(" ", "")
-            for idx, label in np.genfromtxt(
-                osp.join(self._base_dir, "classes-59.txt"), delimiter=":", dtype=None
-            )
-        ]
-        for main_label, task_label in zip(
-            ("table", "bedclothes", "cloth"), ("diningtable", "bedcloth", "clothes")
-        ):
-            self.labels_59[self.labels_59.index(task_label)] = main_label
+        if self.split == 'train':
+            lines = np.load(self._base_dir / 'split/train_list.npy')  # train
+        else:
+            lines = np.load(self._base_dir / 'split/test_list.npy')  # eval
+        lines = [f.split("/")[-1].replace(".png", "") for f in lines]
 
-        self.idx_59_to_idx_469 = {}
-        for idx, l in enumerate(self.labels_59):
-            if idx > 0:
-                self.idx_59_to_idx_469[idx] = self.labels_459.index(l) + 1
+        seen_classes = torch.from_numpy(np.load(self._base_dir / 'split/seen_cls.npy').astype(np.int32))
+        unseen_classes_idx = np.load(self._base_dir / 'split/novel_cls.npy').astype(np.int32)
+        novel_classes = torch.from_numpy(np.load(self._base_dir / 'split/novel_cls.npy').astype(np.int32))
+        seen_novel_classes = torch.cat((seen_classes, novel_classes), dim=0)
 
-        lines = (self._base_dir / f"{self.split}.txt").read_text().splitlines()
+        self.cls_map = torch.tensor([255] * (255 + 1), dtype=torch.float32)
+        if len(args.unseen_classes_idx) > 0 and self.split == "train":
+            for i, n in enumerate(list(seen_classes)):
+                self.cls_map[n] = n - 1
+        else:
+            for i, n in enumerate(list(seen_novel_classes)):
+                self.cls_map[n] = n - 1
+        print('self.cls_map', self.cls_map)
 
         for ii, line in enumerate(lines):
-            _image = self._image_dir / f'{line}.jpg'
-            _cat = self._cat_dir / f"{line}.mat"
+            _image = self._image_dir / self.split / f"{line}.jpg"
+            _cat = self._cat_dir / self.split / f"{line}.png"
             assert _image.is_file()
             assert _cat.is_file()
 
             # if unseen classes and training split
-            if len(args.unseen_classes_idx) > 0:
-                cat = self.load_label(_cat)
-                if lbl_contains_unseen(cat, args.unseen_classes_idx):
+            if len(args.unseen_classes_idx) > 0 and self.split == "train" and args.filter_unseen_classes:
+                cat = Image.open(_cat)
+                cat = np.array(cat, dtype=np.uint8)
+                if lbl_contains_unseen(cat, unseen_classes_idx):
                     continue
 
             self.im_ids.append(line)
@@ -108,24 +103,8 @@ class ContextSegmentation(BaseDataset):
             )
         )
 
-    def load_label(self, file_path):
-        """
-        Load label image as 1 x height x width integer array of label indices.
-        The leading singleton dimension is required by the loss.
-        The full 459 labels are translated to the 59 class task labels.
-        """
-        label_459 = scipy.io.loadmat(file_path)["LabelMap"]
-        label = np.zeros_like(label_459, dtype=np.uint8)
-        for idx, l in enumerate(self.labels_59):
-            if idx > 0:
-                label[label_459 == self.idx_59_to_idx_469[idx]] = idx
-        return label
-
     def init_embeddings(self):
-        if self.load_embedding == "my_w2c":
-            embed_arr = np.load("embeddings/context/pascalcontext_class_w2c.npy")
-        else:
-            raise KeyError(self.load_embedding)
+        embed_arr = get_embedding(self._base_dir)
         self.make_embeddings(embed_arr)
 
     def __getitem__(self, index):
@@ -157,12 +136,14 @@ class ContextSegmentation(BaseDataset):
         if self.load_embedding:
             self.get_embeddings(sample)
         sample["image_name"] = str(self.images[index])
+        # print(type(sample["label"]), sample["label"].dtype, sample["label"].size())
+        sample["label"] = self.cls_map[sample["label"].long()]
+        # print(type(sample["label"]), sample["label"].dtype, sample["label"].size())
         return sample
 
     def _make_img_gt_point_pair(self, index):
         _img = Image.open(self.images[index]).convert("RGB")
-        _target = self.load_label(self.categories[index])
-        _target = Image.fromarray(_target)
+        _target = Image.open(self.categories[index])
         return _img, _target
 
     def transform_tr(self, sample):
@@ -179,11 +160,9 @@ class ContextSegmentation(BaseDataset):
                 tr.ToTensor(),
             ]
         )
-
         return composed_transforms(sample)
 
     def transform_val(self, sample):
-
         composed_transforms = transforms.Compose(
             [
                 tr.FixScale(crop_size=self.args.crop_size),
@@ -191,7 +170,6 @@ class ContextSegmentation(BaseDataset):
                 tr.ToTensor(),
             ]
         )
-
         return composed_transforms(sample)
 
     def transform_weak(self, sample):

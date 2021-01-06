@@ -9,13 +9,15 @@
 
  ## loader ##
 BATCH_SIZE:
-  TRAIN: 8
+  TRAIN: 10
   TEST: 1
 SPLIT:
   TRAIN: train
   TEST: novel
 NUM_WORKERS: 8
 DATAMODE: LoaderZLS 
+
+# background_index: 0
 
  ## image ##
 IMAGE:
@@ -24,8 +26,8 @@ IMAGE:
     G: 116.669
     B: 104.008
   SIZE:
-    TRAIN: 368
-    TEST: 512
+    TRAIN: 312
+    TEST: 312
 WARP_IMAGE: True
 
  ## paths ##

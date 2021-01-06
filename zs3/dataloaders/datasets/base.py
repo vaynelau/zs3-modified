@@ -40,7 +40,7 @@ class BaseDataset(data.Dataset):
     def make_embeddings(self, embed_arr):
         self.embeddings = torch.nn.Embedding(embed_arr.shape[0], embed_arr.shape[1])
         self.embeddings.weight.requires_grad = False
-        self.embeddings.weight.data.copy_(torch.from_numpy(embed_arr))
+        self.embeddings.weight.data.copy_(embed_arr)
 
     def get_embeddings(self, sample):
         mask = sample["label"] == 255

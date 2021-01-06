@@ -9,13 +9,14 @@
 
  ## loader ##
 BATCH_SIZE:
-  TRAIN: 8
+  TRAIN: 10
   TEST: 1
 SPLIT:
   TRAIN: train
   TEST: novel
 NUM_WORKERS: 8
 DATAMODE: LoaderZLS 
+background_index: 255
 
  ## image ##
 IMAGE:
@@ -29,13 +30,13 @@ IMAGE:
 WARP_IMAGE: True
 
  ## paths ##
-ROOT: ./dataset/context/           # path to images/annotations
+ROOT: ./dataset/voc12/             # path to images/annotations
 datadir: ./dataset/                # path to category splits/semantic word embeddings
 save_path: ./Results/              # path to save experiment results
 
  ## dataset setting ##
-dataset: context                   # dataset [voc12/context/cocostuff]
-num_unseen: 4                      # total of unseen categories
+dataset: voc12                     # dataset [voc12/context/cocostuff]
+num_unseen: 5                      # total of unseen categories
 
  ## semantic word embedding ##
 embedding: fastnvec                # word embedding method [word2vec/fasttext/fastnvec]
@@ -44,7 +45,7 @@ emb_without_normal: False          # whether not to normalize semantic word embe
  ## intervals ##
 display_interval: 10               # how often(iter) to display outputs on screen
 log_interval: 100                  # how often(iter) to log the training status
-snapshot: 1000                     # how often(iter) to save the trained models
+snapshot: 2000                     # how often(iter) to save the trained models
 
 
 ########################
@@ -52,57 +53,57 @@ snapshot: 1000                     # how often(iter) to save the trained models
 ########################
 
  ## iterations ##
-#ITER_MAX: 40000                   # maximum number of training iterations
-ITER_MAX_TRANSFER: 10000           # maximum number of training iterations in finetuning
+ITER_MAX: 40000                    # maximum number of training iterations
+#ITER_MAX_TRANSFER: 6000           # maximum number of training iterations in finetuning
 
  ## optimizer ##
 dis_opt:
   OPTIMIZER: adam
-  #lr: 0.00025
-  lr_transfer: 0.00005
+  lr: 0.00025
+  #lr_transfer: 0.00005
   weight_decay: 0.0005
 back_opt:
   OPTIMIZER: sgd
-  #lr: 0.00025
-  lr_transfer: 0.0
+  lr: 0.00025
+  #lr_transfer: 0.0
   WEIGHT_DECAY: 0.0005
   MOMENTUM: 0.9
 gen_opt:
   OPTIMIZER: adam
-  #lr: 0.0002
-  lr_transfer: 0.00005
+  lr: 0.0002
+  #lr_transfer: 0.00005
   weight_decay: 0
 
  ## learning rate scheduler ##
 dis_scheduler:
   lr_policy: lambda
-  start_decay_iter: 5000
-  step_size: 1000
-  gamma: 0.3
+  start_decay_iter: 10000
+  step_size: 5000
+  gamma: 0.71
 back_scheduler:
   lr_policy: poly
   lr_decay_iter: 10
   power: 0.9
 gen_scheduler:
   lr_policy: lambda
-  start_decay_iter: 5000
-  step_size: 1000
-  gamma: 0.3
+  start_decay_iter: 10000
+  step_size: 5000
+  gamma: 0.71
 
  ## discriminator ##
 criticUpdates: 1                   # times to update Discriminator in each iteration
 
  ## backbone ##
-update_back: f                     # update backbone when 'update_back == t', no update otherwise
+update_back: t                     # update backbone when 'update_back == t', no update otherwise
 
  ## finetuning ##
-gen_unseen_rate: 14                # augment unseen categories for larger possibilities
+gen_unseen_rate: 9                 # augment unseen categories for larger possibilities
 interval_step1: 100                # iterations to execute continuously for step1
 interval_step2: 100                # iterations to execute continuously for step2
 first: step1                       # execute [step1/step2] at first
 
  ## self-training ##
-top_p: 17                          # retain top_p category indices with the highest prediction scores
+top_p: 10                          # retain top_p category indices with the highest prediction scores
 
 
 ###################
@@ -111,7 +112,8 @@ top_p: 17                          # retain top_p category indices with the high
 
  ## initialization ##
 init: kaiming                      # initialization [gaussian/kaiming/xavier/orthogonal]
-init_model: ./Results/context/0/models/00040000.pth
+init_model: ./trained_models/deeplabv2_resnet101_init.pth
+#init_model: ./trained_models/voc12_ourbest.pth
 
  ## layers ##
 gen:
@@ -123,7 +125,7 @@ dis:
   norm_fc: none                    # normalization method for the shared fc [none/bn/in/adain]
   activ_fc: relu                   # activation function for the shared fc [none/relu/lrelu/tanh]
   drop_fc: 0.5                     # dropout rate for the shared fc [none/$float$]
-  out_dim_cls: 34                  # output dimension for classification: seen + unseen + bg
+  out_dim_cls: 21                  # output dimension for classification: seen + unseen + bg
 back:
   n_classes: 600                   # output dimension for the real features
 
@@ -135,14 +137,14 @@ back:
 ignore_index: 255                  # ignored index in GT segmentation mask when calculating losses
 loss_count: 8                      # count of losses to display in step1
 lambda_D_gp: 10                    # gradient penalty coefficient in wgan mode for Discriminator
-lambda_D_cls_real: 0.75            # real-feature classification loss coefficient for Discriminator
-lambda_D_cls_fake: 0.25            # fake-feature classification loss coefficient for Discriminator
-lambda_D_cls_fake_transfer: 0.125  # fake-feature classification loss coefficient for Discriminator in transfer learning
+lambda_D_cls_real: 1  #-->0.5      # real-feature classification loss coefficient for Discriminator
+lambda_D_cls_fake: 0  #-->0.5      # fake-feature classification loss coefficient for Discriminator
+lambda_D_cls_fake_transfer: 0      # fake-feature classification loss coefficient for Discriminator in finetuning
 lambda_B_KLD: 100                  # KLDiv loss coefficient for Backbone
 lambda_B_cls: 0.5                  # classification loss coefficient for Backbone
 lambda_G_Content: 50               # content loss coefficient for Generator
 lambda_G_GAN: 1                    # adversarial loss coefficient for Generator
 lambda_G_cls: 0                    # classification loss coefficient for Generator
-lambda_G_cls_transfer: 0           # classification loss coefficient for Generator in transfer learning
+lambda_G_cls_transfer: 0           # classification loss coefficient for Generator in finetuning
 content_loss: MMDLoss              # type of content loss [PerceptualLoss/ContentLoss/ContentLossMSE/MMDLoss]
 gan_type: lsgan                    # type of Adversarial loss [wgan-gp/wgan/lsgan/gan]

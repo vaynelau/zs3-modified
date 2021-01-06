@@ -1,62 +1,223 @@
 CLASSES_NAMES = [
-    "background",  # class 0
-    "aeroplane",  # class 1
-    "bicycle",  # class 2
-    "bird",  # class 3
-    "boat",  # class 4
-    "bottle",  # class 5
-    "bus",  # class 6
-    "car",  # class 7
-    "cat",  # class 8
-    "chair",  # class 9
-    "cow",  # class 10
-    "table",  # class 11
-    "dog",  # class 12
-    "horse",  # class 13
-    "motorbike",  # class 14
-    "person",  # class 15
-    "pottedplant",  # class 16
-    "sheep",  # class 17
-    "sofa",  # class 18
-    "train",  # class 19
-    "tvmonitor",  # class 20
-    "bag",  # class 21
-    "bed",  # class 22
-    "bench",  # class 23
-    "book",  # class 24
-    "building",  # class 25
-    "cabinet",  # class 26
-    "ceiling",  # class 27
-    "cloth",  # class 28
-    "computer",  # class 29
-    "cup",  # class 30
-    "door",  # class 31
-    "fence",  # class 32
-    "floor",  # class 33
-    "flower",  # class 34
-    "food",  # class 35
-    "grass",  # class 36
-    "ground",  # class 37
-    "keyboard",  # class 38
-    "light",  # class 39
-    "mountain",  # class 40
-    "mouse",  # class 41
-    "curtain",  # class 42
-    "platform",  # class 43
-    "sign",  # class 44
-    "plate",  # class 45
-    "road",  # class 46
-    "rock",  # class 47
-    "shelves",  # class 48
-    "sidewalk",  # class 49
-    "sky",  # class 50
-    "snow",  # class 51
-    "bedclothes",  # class 52
-    "track",  # class 53
-    "tree",  # class 54
-    "truck",  # class 55
-    "wall",  # class 56
-    "water",  # class 57
-    "window",  # class 58
-    "wood",  # class 59
+#     "background",
+    "aeroplane",
+    "bicycle",
+    "bird",
+    "boat",
+    "bottle",
+    "bus",
+    "car",
+    "cat",
+    "chair",
+    "cow",
+    "diningtable",
+    "dog",
+    "horse",
+    "motorbike",
+    "person",
+    "pottedplant",
+    "sheep",
+    "sofa",
+    "train",
+    "tvmonitor",
+    "sky",
+    "grass",
+    "ground",
+    "road",
+    "building",
+    "tree",
+    "water",
+    "mountain",
+    "wall",
+    "floor",
+    "track",
+    "keyboard",
+    "ceiling"
+]
+
+
+COCO_CLASSES_NAMES = [  # COCO-stuff
+#     "background",  # class 0
+    "person",  
+    "bicycle",
+    "car",
+    "motorcycle",
+    "airplane",
+    "bus",
+    "train",
+    "truck",
+    "boat",
+    "traffic light",
+    "fire hydrant",
+    "street sign",
+    "stop sign",
+    "parking meter",
+    "bench",
+    "bird",
+    "cat",
+    "dog",
+    "horse",
+    "sheep",
+    "cow",
+    "elephant",
+    "bear",
+    "zebra",
+    "giraffe",
+    "hat",
+    "backpack",
+    "umbrella",
+    "shoe",
+    "eye glasses",
+    "handbag",
+    "tie",
+    "suitcase",
+    "frisbee",
+    "skis",
+    "snowboard",
+    "sports ball",
+    "kite",
+    "baseball bat",
+    "baseball glove",
+    "skateboard",
+    "surfboard",
+    "tennis racket",
+    "bottle",
+    "plate",
+    "wine glass",
+    "cup",
+    "fork",
+    "knife",
+    "spoon",
+    "bowl",
+    "banana",
+    "apple",
+    "sandwich",
+    "orange",
+    "broccoli",
+    "carrot",
+    "hot dog",
+    "pizza",
+    "donut",
+    "cake",
+    "chair",
+    "couch",
+    "potted plant",
+    "bed",
+    "mirror",
+    "dining table",
+    "window",
+    "desk",
+    "toilet",
+    "door",
+    "tv",
+    "laptop",
+    "mouse",
+    "remote",
+    "keyboard",
+    "cell phone",
+    "microwave",
+    "oven",
+    "toaster",
+    "sink",
+    "refrigerator",
+    "blender",
+    "book",
+    "clock",
+    "vase",
+    "scissors",
+    "teddy bear",
+    "hair drier",
+    "toothbrush",
+    "hair brush",
+    "banner",
+    "blanket",
+    "branch",
+    "bridge",
+    "building-other",
+    "bush",
+    "cabinet",
+    "cage",
+    "cardboard",
+    "carpet",
+    "ceiling-other",
+    "ceiling-tile",
+    "cloth",
+    "clothes",
+    "clouds",
+    "counter",
+    "cupboard",
+    "curtain",
+    "desk-stuff",
+    "dirt",
+    "door-stuff",
+    "fence",
+    "floor-marble",
+    "floor-other",
+    "floor-stone",
+    "floor-tile",
+    "floor-wood",
+    "flower",
+    "fog",
+    "food-other",
+    "fruit",
+    "furniture-other",
+    "grass",
+    "gravel",
+    "ground-other",
+    "hill",
+    "house",
+    "leaves",
+    "light",
+    "mat",
+    "metal",
+    "mirror-stuff",
+    "moss",
+    "mountain",
+    "mud",
+    "napkin",
+    "net",
+    "paper",
+    "pavement",
+    "pillow",
+    "plant-other",
+    "plastic",
+    "platform",
+    "playingfield",
+    "railing",
+    "railroad",
+    "river",
+    "road",
+    "rock",
+    "roof",
+    "rug",
+    "salad",
+    "sand",
+    "sea",
+    "shelf",
+    "sky-other",
+    "skyscraper",
+    "snow",
+    "solid-other",
+    "stairs",
+    "stone",
+    "straw",
+    "structural-other",
+    "table",
+    "tent",
+    "textile-other",
+    "towel",
+    "tree",
+    "vegetable",
+    "wall-brick",
+    "wall-concrete",
+    "wall-other",
+    "wall-panel",
+    "wall-stone",
+    "wall-tile",
+    "wall-wood",
+    "water-other",
+    "waterdrops",
+    "window-blind",
+    "window-other",
+    "wood"
 ]

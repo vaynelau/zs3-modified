@@ -108,3 +108,6 @@ zs3/checkpoint
 run/
 data/VOC2012
 zs3/data/VOC2012
+
+*.txt
+

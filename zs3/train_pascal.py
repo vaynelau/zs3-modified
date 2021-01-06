@@ -1,11 +1,11 @@
 import os
-
+import json
 import numpy as np
 import torch
 from tqdm import tqdm
 import yaml
 
-from zs3.dataloaders import make_data_loader, get_split, get_dataset
+from zs3.dataloaders import make_data_loader
 from zs3.modeling.deeplab import DeepLab
 from zs3.modeling.sync_batchnorm.replicate import patch_replication_callback
 from zs3.dataloaders.datasets import DATASETS_DIRS
@@ -18,11 +18,7 @@ from zs3.utils.summaries import TensorboardSummary
 from zs3.parsing import get_parser
 from zs3.exp_data import CLASSES_NAMES
 from zs3.base_trainer import BaseTrainer
-
-
-def get_config(config):
-    with open(config, 'r') as stream:
-        return yaml.load(stream, Loader=yaml.FullLoader)
+from zs3.tools import logWritter, scores_gzsl, get_split, get_config
 
 
 class Trainer(BaseTrainer):
@@ -40,63 +36,23 @@ class Trainer(BaseTrainer):
             Get dataLoader
         """
         config = get_config(args.config)
-        # cfg = {'datadir': './dataset/', 'dataset': 'voc12', 'ignore_index': '255'}
-        vals_cls, valu_cls, all_labels, visible_classes, visible_classes_test, train, val, sampler, visibility_mask, cls_map, cls_map_test = get_split(
-            config)
+        vals_cls, valu_cls, all_labels, visible_classes, visible_classes_test, train, val, sampler, _, cls_map, cls_map_test = get_split(config)
         assert (visible_classes_test.shape[0] == config['dis']['out_dim_cls'] - 1)
-
-        dataset = get_dataset(config['DATAMODE'])(
-            train=train,
-            test=None,
-            root=config['ROOT'],
-            split=config['SPLIT']['TRAIN'],
-            base_size=312,
-            crop_size=config['IMAGE']['SIZE']['TRAIN'],
-            mean=(config['IMAGE']['MEAN']['B'], config['IMAGE']['MEAN']['G'], config['IMAGE']['MEAN']['R']),
-            warp=config['WARP_IMAGE'],
-            scale=(0.5, 1.5),
-            flip=True,
-            visibility_mask=visibility_mask
+        print('seen_classes', vals_cls)
+        print('novel_classes', valu_cls)
+        print('all_labels', all_labels)
+        print('visible_classes', visible_classes)
+        print('visible_classes_test', visible_classes_test)
+        print('train', train[:10], len(train))
+        print('val', val[:10], len(val))
+        print('cls_map', cls_map)
+        print('cls_map_test', cls_map_test)
+        
+        kwargs = {"num_workers": args.workers, "pin_memory": True}
+        (self.train_loader, self.val_loader, _, self.nclass,) = make_data_loader(
+            args, **kwargs
         )
-        print('train dataset:', len(dataset))
-
-        loader = torch.utils.data.DataLoader(
-            dataset=dataset,
-            batch_size=config['BATCH_SIZE']['TRAIN'],
-            num_workers=config['NUM_WORKERS'],
-            sampler=sampler
-        )
-
-        dataset_test = get_dataset(config['DATAMODE'])(
-            train=None,
-            test=val,
-            root=config['ROOT'],
-            split=config['SPLIT']['TEST'],
-            base_size=312,
-            crop_size=config['IMAGE']['SIZE']['TEST'],
-            mean=(config['IMAGE']['MEAN']['B'], config['IMAGE']['MEAN']['G'], config['IMAGE']['MEAN']['R']),
-            warp=config['WARP_IMAGE'],
-            scale=None,
-            flip=False
-        )
-        print('test dataset:', len(dataset_test))
-
-        loader_test = torch.utils.data.DataLoader(
-            dataset=dataset_test,
-            batch_size=config['BATCH_SIZE']['TEST'],
-            num_workers=config['NUM_WORKERS'],
-            shuffle=False
-        )
-
-#         kwargs = {"num_workers": args.workers, "pin_memory": True}
-#         (self.train_loader, self.val_loader, _, self.nclass,) = make_data_loader(
-#             args, **kwargs
-#         )
-#         print('self.nclass', self.nclass)
-
-        self.train_loader = loader
-        self.val_loader = loader_test
-        self.nclass = 21
+        print('self.nclass', self.nclass)
 
         # Define network
         model = DeepLab(
@@ -174,26 +130,23 @@ class Trainer(BaseTrainer):
         if args.ft:
             args.start_epoch = 0
 
-    def validation(self, epoch):
-        class_names = CLASSES_NAMES[:21]
+    def validation(self, epoch, args):
+        class_names = CLASSES_NAMES[:20]
         self.model.eval()
         self.evaluator.reset()
         tbar = tqdm(self.val_loader, desc="\r")
         test_loss = 0.0
         torch.set_printoptions(profile="full")
+        targets, outputs = [], []
+        log_file = './logs_voc12_step_1.txt'
+        logger = logWritter(log_file)
         for i, sample in enumerate(tbar):
-            # image, target = sample["image"], sample["label"]
-            image, target = sample[0], sample[1]
-#             print('image', image.size(), image[ :, :, 100:105])
-#             print('-----------------------------------------------------')
-#             print('target', target.size(), target[ :, 100:105])
-#             print('=====================================================')
+            image, target = sample["image"], sample["label"]
             if self.args.cuda:
                 image, target = image.cuda(), target.cuda()
             with torch.no_grad():
                 output = self.model(image)
-                
-            
+
             loss = self.criterion(output, target)
             test_loss += loss.item()
             tbar.set_description("Test loss: %.3f" % (test_loss / (i + 1)))
@@ -202,9 +155,35 @@ class Trainer(BaseTrainer):
             pred = np.argmax(pred, axis=1)
 #             print('pred', pred[:, 100:105, 100:120])
 #             print('target', target[:, 100:105, 100:120])
+            for o, t in zip(pred, target):
+                outputs.append(o)
+                targets.append(t)
             # Add batch sample into evaluator
             self.evaluator.add_batch(target, pred)
 
+        config = get_config(args.config)
+        vals_cls, valu_cls, all_labels, visible_classes, visible_classes_test, train, val, sampler, _, cls_map, cls_map_test = get_split(
+            config)
+        assert (visible_classes_test.shape[0] == config['dis']['out_dim_cls'] - 1)
+        score, class_iou = scores_gzsl(targets, outputs, n_class=len(visible_classes_test),
+                                       seen_cls=cls_map_test[vals_cls], unseen_cls=cls_map_test[valu_cls])
+
+        print("Test results:")
+        logger.write("Test results:")
+
+        for k, v in score.items():
+            print(k + ': ' + json.dumps(v))
+            logger.write(k + ': ' + json.dumps(v))
+
+        score["Class IoU"] = {}
+        for i in range(len(visible_classes_test)):
+            score["Class IoU"][all_labels[visible_classes_test[i]]] = class_iou[i]
+        print("Class IoU: " + json.dumps(score["Class IoU"]))
+        logger.write("Class IoU: " + json.dumps(score["Class IoU"]))
+
+        print("Test finished.\n\n")
+        logger.write("Test finished.\n\n")
+        
         # Fast test during the training
         Acc = self.evaluator.Pixel_Accuracy()
         Acc_class, Acc_class_by_class = self.evaluator.Pixel_Accuracy_Class()
@@ -269,7 +248,7 @@ def main():
     parser.add_argument(
         "--use-sbd",
         action="store_true",
-        default=True,
+        default=False,
         help="whether to use SBD dataset (default: True)",
     )
     parser.add_argument("--base-size", type=int, default=312, help="base image size")
@@ -322,13 +301,6 @@ def main():
         help="set the checkpoint name",
     )
 
-    parser.add_argument(
-        '--config',
-        type=str,
-        default='***.yaml',
-        help='configuration file for train/val',
-    )
-
     # evaluation option
     parser.add_argument(
         "--eval-interval", type=int, default=10, help="evaluation interval (default: 1)"
@@ -339,12 +311,20 @@ def main():
     # 8 unseen
     # parser.add_argument('--unseen_classes_idx', type=int, default=[10, 14, 1, 18, 8, 20, 19, 5])
     # 6 unseen
-#     parser.add_argument('--unseen_classes_idx', type=int, default=[10, 14, 1, 18, 8, 20])
+    # parser.add_argument('--unseen_classes_idx', type=int, default=[10, 14, 1, 18, 8, 20])
     # 4 unseen
     # parser.add_argument('--unseen_classes_idx', type=int, default=[10, 14, 1, 18])
     # 2 unseen
-#     parser.add_argument("--unseen_classes_idx", type=int, default=[10, 14])
-
+    # parser.add_argument("--unseen_classes_idx", type=int, default=[10, 14])
+    # 5 unseen
+    parser.add_argument("--unseen_classes_idx", type=int, default=[15, 16, 17, 18, 19])
+    parser.add_argument(
+        "--filter_unseen_classes",
+        type=bool,
+        default=False,
+        help="filter unseen classes",
+    )
+    
     args = parser.parse_args()
     args.cuda = not args.no_cuda and torch.cuda.is_available()
     if args.cuda:
@@ -387,13 +367,13 @@ def main():
     trainer = Trainer(args)
     print("Starting Epoch:", trainer.args.start_epoch)
     print("Total Epoches:", trainer.args.epochs)
-#     trainer.validation(trainer.args.start_epoch)
+    # trainer.validation(trainer.args.start_epoch, args)
     for epoch in range(trainer.args.start_epoch, trainer.args.epochs):
         trainer.training(epoch)
         if not trainer.args.no_val and epoch % args.eval_interval == (
             args.eval_interval - 1
         ):
-            trainer.validation(epoch)
+            trainer.validation(epoch, args)
     trainer.writer.close()
 
 
