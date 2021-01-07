@@ -311,7 +311,7 @@ def main():
     unseen_classes_idx = []
     for name in unseen_names:
         unseen_classes_idx.append(CLASSES_NAMES.index(name))
-    print('unseen_classes_idx', unseen_classes_idx)
+    # print('unseen_classes_idx', unseen_classes_idx)
     
     parser.add_argument("--unseen_classes_idx", type=int, default=unseen_classes_idx)
     parser.add_argument(

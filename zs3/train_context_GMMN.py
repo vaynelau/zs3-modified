@@ -1,12 +1,12 @@
 import os
-
+import json
 import numpy as np
 import torch
 from torch import nn
 from tqdm import tqdm
 import yaml
 
-from zs3.dataloaders import make_data_loader, get_split, get_dataset
+from zs3.dataloaders import make_data_loader
 from zs3.modeling.deeplab import DeepLab
 from zs3.modeling.gmmn import GMMNnetwork
 from zs3.modeling.sync_batchnorm.replicate import patch_replication_callback
@@ -17,11 +17,7 @@ from zs3.utils.saver import Saver
 from zs3.utils.summaries import TensorboardSummary
 from zs3.parsing import get_parser
 from zs3.exp_data import CLASSES_NAMES
-
-
-def get_config(config):
-    with open(config, 'r') as stream:
-        return yaml.load(stream, Loader=yaml.FullLoader)
+from zs3.tools import logWritter, scores_gzsl, get_split, get_config
 
 
 class Trainer:
@@ -34,71 +30,29 @@ class Trainer:
         # Define Tensorboard Summary
         self.summary = TensorboardSummary(self.saver.experiment_dir)
         self.writer = self.summary.create_summary()
-        
-        
+
         """
             Get dataLoader
         """
         config = get_config(args.config)
-        vals_cls, valu_cls, all_labels, visible_classes, visible_classes_test, train, val, sampler, visibility_mask, visibility_mask_test, cls_map, cls_map_test = get_split(config)
+        vals_cls, valu_cls, all_labels, visible_classes, visible_classes_test, train, val, sampler, _, cls_map, cls_map_test = get_split(config)
         assert (visible_classes_test.shape[0] == config['dis']['out_dim_cls'] - 1)
+        print('seen_classes', vals_cls)
+        print('novel_classes', valu_cls)
+        print('all_labels', all_labels)
+        print('visible_classes', visible_classes)
+        print('visible_classes_test', visible_classes_test)
+        print('train', train[:10], len(train))
+        print('val', val[:10], len(val))
+        print('cls_map', cls_map)
+        print('cls_map_test', cls_map_test)
 
-        dataset = get_dataset(config['DATAMODE'])(
-            train=train,
-            test=None,
-            root=config['ROOT'],
-            split=config['SPLIT']['TRAIN'],
-            base_size=312,
-            crop_size=config['IMAGE']['SIZE']['TRAIN'],
-            mean=(config['IMAGE']['MEAN']['B'], config['IMAGE']['MEAN']['G'], config['IMAGE']['MEAN']['R']),
-            warp=config['WARP_IMAGE'],
-            scale=(0.5, 1.5),
-            flip=True,
-            visibility_mask=visibility_mask_test,
-            config=config
-        )
-        print('train dataset:', len(dataset))
-        
-        loader = torch.utils.data.DataLoader(
-            dataset=dataset,
-            batch_size=config['BATCH_SIZE']['TRAIN'],
-            num_workers=config['NUM_WORKERS'],
-            sampler=sampler
-        )
-        
-        dataset_test = get_dataset(config['DATAMODE'])(
-            train=None,
-            test=val,
-            root=config['ROOT'],
-            split=config['SPLIT']['TEST'],
-            base_size=312,
-            crop_size=config['IMAGE']['SIZE']['TEST'],
-            mean=(config['IMAGE']['MEAN']['B'], config['IMAGE']['MEAN']['G'], config['IMAGE']['MEAN']['R']),
-            warp=config['WARP_IMAGE'],
-            scale=None,
-            flip=False,
-            visibility_mask=visibility_mask_test,
-            config=config
-        )
-        print('test dataset:', len(dataset_test))
-        
-        loader_test = torch.utils.data.DataLoader(
-            dataset=dataset_test,
-            batch_size=config['BATCH_SIZE']['TEST'],
-            num_workers=config['NUM_WORKERS'],
-            shuffle=False
-        )
-        
-        self.train_loader = loader
-        self.val_loader = loader_test
-        self.nclass = 33
-        
-        
         # Define Dataloader
-#         kwargs = {"num_workers": args.workers, "pin_memory": True}
-#         (self.train_loader, self.val_loader, _, self.nclass,) = make_data_loader(
-#             args, load_embedding=args.load_embedding, w2c_size=args.w2c_size, **kwargs
-#         )
+        kwargs = {"num_workers": args.workers, "pin_memory": True}
+        (self.train_loader, self.val_loader, _, self.nclass,) = make_data_loader(
+            args, load_embedding=args.load_embedding, w2c_size=args.w2c_size, **kwargs
+        )
+        print('self.nclass', self.nclass)  # 33
 
         model = DeepLab(
             num_classes=self.nclass,
@@ -388,6 +342,10 @@ class Trainer:
             saved_target[idx_unseen_class] = []
             saved_prediction[idx_unseen_class] = []
 
+        targets, outputs = [], []
+        log_file = './logs_context_step_2_GMMN.txt'
+        logger = logWritter(log_file)
+
         for i, sample in enumerate(tbar):
             image, target, embedding = (
                 sample["image"],
@@ -410,10 +368,37 @@ class Trainer:
                         saved_prediction[idx_unseen_class].append(output.clone().cpu())
 
             pred = output.data.cpu().numpy()
-            target = target.cpu().numpy()
+            target = target.cpu().numpy().astype(np.int64)
             pred = np.argmax(pred, axis=1)
+            for o, t in zip(pred, target):
+                outputs.append(o)
+                targets.append(t)
             # Add batch sample into evaluator
             self.evaluator.add_batch(target, pred)
+
+        config = get_config(args.config)
+        vals_cls, valu_cls, all_labels, visible_classes, visible_classes_test, train, val, sampler, _, cls_map, cls_map_test = get_split(
+            config)
+        assert (visible_classes_test.shape[0] == config['dis']['out_dim_cls'] - 1)
+        score, class_iou = scores_gzsl(targets, outputs, n_class=len(visible_classes_test),
+                                       seen_cls=cls_map_test[vals_cls], unseen_cls=cls_map_test[valu_cls])
+
+        print("Test results:")
+        logger.write("Test results:")
+
+        for k, v in score.items():
+            print(k + ': ' + json.dumps(v))
+            logger.write(k + ': ' + json.dumps(v))
+
+        score["Class IoU"] = {}
+        visible_classes_test = sorted(visible_classes_test)
+        for i in range(len(visible_classes_test)):
+            score["Class IoU"][all_labels[visible_classes_test[i]]] = class_iou[i]
+        print("Class IoU: " + json.dumps(score["Class IoU"]))
+        logger.write("Class IoU: " + json.dumps(score["Class IoU"]))
+
+        print("Test finished.\n\n")
+        logger.write("Test finished.\n\n")
 
         # Fast test during the training
         Acc, Acc_seen, Acc_unseen = self.evaluator.Pixel_Accuracy()
@@ -537,7 +522,7 @@ def main():
     parser.add_argument(
         "--use-sbd",
         action="store_true",
-        default=True,
+        default=False,
         help="whether to use SBD dataset (default: True)",
     )
     parser.add_argument("--base-size", type=int, default=312, help="base image size")
@@ -579,14 +564,14 @@ def main():
     parser.add_argument(
         "--resume",
         type=str,
-        default="checkpoint/deeplab_pretrained_pascal_context_02_unseen.pth.tar",
+        default="run/context/context_4_unseen_filter_unseen_classes/experiment_0/200_model.pth.tar",
         help="put the path to resuming file if needed",
     )
 
     parser.add_argument(
         "--checkname",
         type=str,
-        default="gmmn_context_w2c300_linear_weighted100_hs256_2_unseen",
+        default="gmmn_context_w2c300_linear_weighted100_hs256_4_unseen",
     )
 
     # false if embedding resume
@@ -659,6 +644,13 @@ def main():
     parser.add_argument("--batch_size_generator", type=int, default=128)
     parser.add_argument("--saved_validation_images", type=int, default=10)
 
+    parser.add_argument(
+        "--filter_unseen_classes",
+        type=bool,
+        default=False,
+        help="filter unseen classes",
+    )
+
     args = parser.parse_args()
     args.cuda = not args.no_cuda and torch.cuda.is_available()
     if args.cuda:
@@ -701,8 +693,8 @@ def main():
     trainer = Trainer(args)
     print("Starting Epoch:", trainer.args.start_epoch)
     print("Total Epoches:", trainer.args.epochs)
+    trainer.validation(trainer.args.start_epoch, args)
     for epoch in range(trainer.args.start_epoch, trainer.args.epochs):
-
         trainer.training(epoch, args)
         if not trainer.args.no_val and epoch % args.eval_interval == (
             args.eval_interval - 1

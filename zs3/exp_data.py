@@ -1,5 +1,5 @@
 CLASSES_NAMES = [
-#     "background",
+    # "background",
     "aeroplane",
     "bicycle",
     "bird",
@@ -37,8 +37,8 @@ CLASSES_NAMES = [
 
 
 COCO_CLASSES_NAMES = [  # COCO-stuff
-#     "background",  # class 0
-    "person",  
+    # "background",  # class 0
+    "person",
     "bicycle",
     "car",
     "motorcycle",
