@@ -133,27 +133,35 @@ def get_split(cfg):
 
     seen_classes = np.load(dataset_path + '/split/seen_cls.npy').astype(np.int32)
     novel_classes = np.load(dataset_path + '/split/novel_cls.npy').astype(np.int32)
-    if cfg['dataset'] == 'cocostuff':
-        seen_classes += 1
-        novel_classes += 1
+#     if cfg['dataset'] == 'cocostuff':
+#         seen_classes += 1
+#         novel_classes += 1
 
     seen_novel_classes = np.concatenate((seen_classes, novel_classes), axis=0)
     all_labels = np.genfromtxt(dataset_path + '/labels_refined.txt', delimiter='\t', usecols=1, dtype='str')
-    if cfg['dataset'] == 'cocostuff':
-        all_labels = np.insert(all_labels, 0, 'background')
+#     if cfg['dataset'] == 'cocostuff':
+#         all_labels = np.insert(all_labels, 0, 'background')
     
     visible_classes = seen_classes
     visible_classes_test = seen_novel_classes
 
     novelset, seenset = [], range(train.shape[0])
     sampler = RandomImageSampler(seenset, novelset)
-
-    cls_map = np.array([cfg['ignore_index']] * (cfg['ignore_index'] + 1)).astype(np.int32)
-    for i, n in enumerate(list(seen_classes)):
-        cls_map[n] = n - 1
-    cls_map_test = np.array([cfg['ignore_index']] * (cfg['ignore_index'] + 1)).astype(np.int32)
-    for i, n in enumerate(list(seen_novel_classes)):
-        cls_map_test[n] = n - 1
+    
+    if cfg['dataset'] == 'cocostuff':
+        cls_map = np.array([cfg['ignore_index']] * (cfg['ignore_index'] + 1)).astype(np.int32)
+        for i, n in enumerate(list(seen_classes)):
+            cls_map[n] = n
+        cls_map_test = np.array([cfg['ignore_index']] * (cfg['ignore_index'] + 1)).astype(np.int32)
+        for i, n in enumerate(list(seen_novel_classes)):
+            cls_map_test[n] = n
+    else:
+        cls_map = np.array([cfg['ignore_index']] * (cfg['ignore_index'] + 1)).astype(np.int32)
+        for i, n in enumerate(list(seen_classes)):
+            cls_map[n] = n - 1
+        cls_map_test = np.array([cfg['ignore_index']] * (cfg['ignore_index'] + 1)).astype(np.int32)
+        for i, n in enumerate(list(seen_novel_classes)):
+            cls_map_test[n] = n - 1
 
     visibility_mask = {}
     visibility_mask[0] = cls_map.copy()

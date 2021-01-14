@@ -66,17 +66,15 @@ class CocoSegmentation(BaseDataset):
         seen_classes = torch.from_numpy(np.load(self._base_dir / 'split/seen_cls.npy').astype(np.int32))
         unseen_classes_idx = np.load(self._base_dir / 'split/novel_cls.npy').astype(np.int32)
         novel_classes = torch.from_numpy(np.load(self._base_dir / 'split/novel_cls.npy').astype(np.int32))
-        seen_classes += 1
-        novel_classes += 1
         seen_novel_classes = torch.cat((seen_classes, novel_classes), dim=0)
 
         self.cls_map = torch.tensor([255] * (255 + 1), dtype=torch.float32)
         if len(args.unseen_classes_idx) > 0 and self.split == "train":
             for i, n in enumerate(list(seen_classes)):
-                self.cls_map[n] = n - 1
+                self.cls_map[n] = n
         else:
             for i, n in enumerate(list(seen_novel_classes)):
-                self.cls_map[n] = n - 1
+                self.cls_map[n] = n
         print('self.cls_map', self.cls_map)
 
         for ii, line in enumerate(lines):
@@ -167,6 +165,7 @@ class CocoSegmentation(BaseDataset):
     def transform_val(self, sample):
         composed_transforms = transforms.Compose(
             [
+#                 tr.FixScale(crop_size=513),
                 tr.FixScale(crop_size=self.args.crop_size),
                 tr.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
                 tr.ToTensor(),

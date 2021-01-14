@@ -1,5 +1,5 @@
 import os
-
+import json
 import numpy as np
 import torch
 from tqdm import tqdm
@@ -16,6 +16,7 @@ from zs3.utils.saver import Saver
 from zs3.utils.summaries import TensorboardSummary
 from zs3.parsing import get_parser
 from zs3.exp_data import CLASSES_NAMES
+from zs3.tools import logWritter, scores_gzsl, get_split, get_config
 
 
 class Trainer:
@@ -29,11 +30,29 @@ class Trainer:
         self.summary = TensorboardSummary(self.saver.experiment_dir)
         self.writer = self.summary.create_summary()
 
+        """
+            Get dataLoader
+        """
+        config = get_config(args.config)
+        vals_cls, valu_cls, all_labels, visible_classes, visible_classes_test, train, val, sampler, _, cls_map, cls_map_test = get_split(
+            config)
+        assert (visible_classes_test.shape[0] == config['dis']['out_dim_cls'] - 1)
+        print('seen_classes', vals_cls)
+        print('novel_classes', valu_cls)
+        print('all_labels', all_labels)
+        print('visible_classes', visible_classes)
+        print('visible_classes_test', visible_classes_test)
+        print('train', train[:10], len(train))
+        print('val', val[:10], len(val))
+        print('cls_map', cls_map)
+        print('cls_map_test', cls_map_test)
+
         # Define Dataloader
         kwargs = {"num_workers": args.workers, "pin_memory": True}
         (self.train_loader, self.val_loader, _, self.nclass,) = make_data_loader(
             args, **kwargs
         )
+        print('self.nclass', self.nclass)  # 33
 
         # Define network
         model = DeepLab(
@@ -141,6 +160,9 @@ class Trainer:
         all_pred = []
         tbar = tqdm(self.val_loader, desc="\r")
         test_loss = 0.0
+        targets, outputs = [], []
+        log_file = './logs_context_eval.txt'
+        logger = logWritter(log_file)
         for i, sample in enumerate(tbar):
             image, target = sample["image"], sample["label"]
             if self.args.cuda:
@@ -154,14 +176,40 @@ class Trainer:
             test_loss += loss.item()
             tbar.set_description("Test loss: %.3f" % (test_loss / (i + 1)))
             pred = output.data.cpu().numpy()
-            target = target.cpu().numpy()
+            target = target.cpu().numpy().astype(np.int64)
             pred = np.argmax(pred, axis=1)
-
+            for o, t in zip(pred, target):
+                outputs.append(o)
+                targets.append(t)
             # Add batch sample into evaluator
             self.evaluator.add_batch(target, pred)
 
             all_target.append(target)
             all_pred.append(pred)
+
+        config = get_config(args.config)
+        vals_cls, valu_cls, all_labels, visible_classes, visible_classes_test, train, val, sampler, _, cls_map, cls_map_test = get_split(
+            config)
+        assert (visible_classes_test.shape[0] == config['dis']['out_dim_cls'] - 1)
+        score, class_iou = scores_gzsl(targets, outputs, n_class=len(visible_classes_test),
+                                       seen_cls=cls_map_test[vals_cls], unseen_cls=cls_map_test[valu_cls])
+
+        print("Test results:")
+        logger.write("Test results:")
+
+        for k, v in score.items():
+            print(k + ': ' + json.dumps(v))
+            logger.write(k + ': ' + json.dumps(v))
+
+        score["Class IoU"] = {}
+        visible_classes_test = sorted(visible_classes_test)
+        for i in range(len(visible_classes_test)):
+            score["Class IoU"][all_labels[visible_classes_test[i]]] = class_iou[i]
+        print("Class IoU: " + json.dumps(score["Class IoU"]))
+        logger.write("Class IoU: " + json.dumps(score["Class IoU"]))
+
+        print("Test finished.\n\n")
+        logger.write("Test finished.\n\n")
 
         # Fast test during the training
         Acc, Acc_seen, Acc_unseen = self.evaluator.Pixel_Accuracy()
@@ -242,7 +290,7 @@ def main():
     parser.add_argument(
         "--use-sbd",
         action="store_true",
-        default=True,
+        default=False,
         help="whether to use SBD dataset (default: True)",
     )
     parser.add_argument("--base-size", type=int, default=513, help="base image size")
@@ -283,7 +331,7 @@ def main():
     parser.add_argument(
         "--resume",
         type=str,
-        default="checkpoint/deeplab_pascal_context_02_unseen_GMMN_final.pth.tar",
+        default="run/context/gmmn_context_w2c300_linear_weighted100_hs256_4_unseen_filtering/experiment_0/6_model.pth.tar",
         help="put the path to resuming file if needed",
     )
 
@@ -298,9 +346,9 @@ def main():
     parser.add_argument("--unseen_classes_idx", type=int, default=[])
 
     # 2 unseen
-    unseen_names = ["cow", "motorbike"]
+    # unseen_names = ["cow", "motorbike"]
     # 4 unseen
-    # unseen_names = ['cow', 'motorbike', 'sofa', 'cat']
+    unseen_names = ['cow', 'motorbike', 'sofa', 'cat']
     # 6 unseen
     # unseen_names = ['cow', 'motorbike', 'sofa', 'cat', 'boat', 'fence']
     # 8 unseen
@@ -313,7 +361,7 @@ def main():
         unseen_classes_idx_metric.append(CLASSES_NAMES.index(name))
 
     ### FOR METRIC COMPUTATION IN ORDER TO GET PERFORMANCES FOR TWO SETS
-    seen_classes_idx_metric = np.arange(60)
+    seen_classes_idx_metric = np.arange(33)
 
     seen_classes_idx_metric = np.delete(
         seen_classes_idx_metric, unseen_classes_idx_metric
@@ -330,6 +378,13 @@ def main():
     )
     parser.add_argument(
         "--random_last_layer", type=bool, default=False, help="randomly init last layer"
+    )
+
+    parser.add_argument(
+        "--filter_unseen_classes",
+        type=bool,
+        default=False,
+        help="filter unseen classes",
     )
 
     args = parser.parse_args()

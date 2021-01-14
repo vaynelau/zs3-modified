@@ -110,4 +110,5 @@ data/VOC2012
 zs3/data/VOC2012
 
 *.txt
+*.file
 

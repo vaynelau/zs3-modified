@@ -1,5 +1,13 @@
 from tqdm import tqdm
 import torch
+import torch.nn.functional as F
+import cv2
+import numpy as np
+def resize_target(target, s):
+    new_target = np.zeros((target.shape[0], s[0], s[1]), np.int32)
+    for i, t in enumerate(target.cpu().numpy()):
+        new_target[i, ...] = cv2.resize(t, (s[1],s[0]), interpolation=cv2.INTER_NEAREST)
+    return torch.from_numpy(new_target).long()
 
 class BaseTrainer:
     def training(self, epoch):
@@ -13,11 +21,14 @@ class BaseTrainer:
 #             print('sample', sample[0].size(), sample[1].size())
             if len(sample["image"]) > 1:
                 image, target = sample["image"], sample["label"]
+                #print(image.shape)
                 if self.args.cuda:
                     image, target = image.cuda(), target.cuda()
                 self.scheduler(self.optimizer, i, epoch, self.best_pred)
                 self.optimizer.zero_grad()
                 output = self.model(image)
+                target =resize_target(target, s=output.size()[2:]).cuda()
+                #print(target[0])
                 loss = self.criterion(output, target)
                 loss.backward()
                 self.optimizer.step()

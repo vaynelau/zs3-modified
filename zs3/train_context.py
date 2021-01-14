@@ -17,7 +17,7 @@ from zs3.utils.saver import Saver
 from zs3.utils.summaries import TensorboardSummary
 from zs3.parsing import get_parser
 from zs3.exp_data import CLASSES_NAMES
-from zs3.base_trainer import BaseTrainer
+from zs3.base_trainer import BaseTrainer, resize_target
 from zs3.tools import logWritter, scores_gzsl, get_split, get_config
 
 
@@ -35,18 +35,18 @@ class Trainer(BaseTrainer):
         """
             Get dataLoader
         """
-        config = get_config(args.config)
-        vals_cls, valu_cls, all_labels, visible_classes, visible_classes_test, train, val, sampler, _, cls_map, cls_map_test = get_split(config)
-        assert (visible_classes_test.shape[0] == config['dis']['out_dim_cls'] - 1)
-        print('seen_classes', vals_cls)
-        print('novel_classes', valu_cls)
-        print('all_labels', all_labels)
-        print('visible_classes', visible_classes)
-        print('visible_classes_test', visible_classes_test)
-        print('train', train[:10], len(train))
-        print('val', val[:10], len(val))
-        print('cls_map', cls_map)
-        print('cls_map_test', cls_map_test)
+#         config = get_config(args.config)
+#         vals_cls, valu_cls, all_labels, visible_classes, visible_classes_test, train, val, sampler, _, cls_map, cls_map_test = get_split(config)
+#         assert (visible_classes_test.shape[0] == config['dis']['out_dim_cls'] - 1)
+#         print('seen_classes', vals_cls)
+#         print('novel_classes', valu_cls)
+#         print('all_labels', all_labels)
+#         print('visible_classes', visible_classes)
+#         print('visible_classes_test', visible_classes_test)
+#         print('train', train[:10], len(train))
+#         print('val', val[:10], len(val))
+#         print('cls_map', cls_map)
+#         print('cls_map_test', cls_map_test)
 
         # Define Dataloader
         kwargs = {"num_workers": args.workers, "pin_memory": True}
@@ -60,7 +60,7 @@ class Trainer(BaseTrainer):
             num_classes=self.nclass,
             output_stride=args.out_stride,
             sync_bn=args.sync_bn,
-            freeze_bn=args.freeze_bn,
+            freeze_bn=True,
             pretrained=args.imagenet_pretrained,
             imagenet_pretrained_path=args.imagenet_pretrained_path,
         )
@@ -97,6 +97,23 @@ class Trainer(BaseTrainer):
             mode=args.loss_type
         )
         self.model, self.optimizer = model, optimizer
+        
+        if args.imagenet_pretrained_path is not None:
+            state_dict = torch.load(args.imagenet_pretrained_path)
+            if 'state_dict' in state_dict.keys():
+                self.model.load_state_dict(state_dict['state_dict'])
+            else:
+                #print(model.state_dict().keys())#['scale.layer1.conv1.conv.weight'])
+                #print(state_dict.items().keys())
+                new_dict = {}
+                for k,v in state_dict.items():
+                    #print(k[11:])
+                    new_dict[k[11:]] = v
+                self.model.load_state_dict(new_dict, strict=False)  # make strict=True to debug if checkpoint is loaded correctly or not if performance is low
+                #print(new_dict.keys())
+                #print(self.model.state_dict()['layer1.conv1.conv.weight'])
+                #model = nn.DataParallel(model, device_ids = [0])
+                #self.model.load_state_dict(state_dict, strict=False)
 
         # Define Evaluator
         self.evaluator = Evaluator(self.nclass)
@@ -145,6 +162,7 @@ class Trainer(BaseTrainer):
                 image, target = image.cuda(), target.cuda()
             with torch.no_grad():
                 output = self.model(image)
+            target = resize_target(target, s=output.size()[2:]).cuda()
             loss = self.criterion(output, target)
             test_loss += loss.item()
             tbar.set_description("Test loss: %.3f" % (test_loss / (i + 1)))
@@ -268,7 +286,7 @@ def main():
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=10,
+        default=8,
         metavar="N",
         help="input batch size for training (default: auto)",
     )
@@ -282,14 +300,14 @@ def main():
     parser.add_argument(
         "--checkname",
         type=str,
-        default="context_4_unseen_filter_unseen_classes",
+        default="context_4_unseen_filter_unseen_classes_v2",
         help="set the checkpoint name",
     )
 
     parser.add_argument(
         "--imagenet_pretrained_path",
         type=str,
-        default="checkpoint/resnet_backbone_pretrained_imagenet_wo_pascalcontext.pth.tar",
+        default="./checkpoint/deeplabv2_resnet101_init.pth",
         help="set the checkpoint name",
     )
 
@@ -317,8 +335,15 @@ def main():
     parser.add_argument(
         "--filter_unseen_classes",
         type=bool,
-        default=True,
+        default=False,
         help="filter unseen classes",
+    )
+    
+    parser.add_argument(
+        '--config',
+        type=str,
+        default='configs/context_finetune.yaml',
+        help='configuration file for train/val',
     )
     
     args = parser.parse_args()

@@ -35,19 +35,19 @@ class Trainer:
         """
             Get dataLoader
         """
-        config = get_config(args.config)
-        vals_cls, valu_cls, all_labels, visible_classes, visible_classes_test, train, val, sampler, _, cls_map, cls_map_test = get_split(
-            config)
-        assert (visible_classes_test.shape[0] == config['dis']['out_dim_cls'] - 1)
-        print('seen_classes', vals_cls)
-        print('novel_classes', valu_cls)
-        print('all_labels', all_labels)
-        print('visible_classes', visible_classes)
-        print('visible_classes_test', visible_classes_test)
-        print('train', train[:10], len(train))
-        print('val', val[:10], len(val))
-        print('cls_map', cls_map)
-        print('cls_map_test', cls_map_test)
+#         config = get_config(args.config)
+#         vals_cls, valu_cls, all_labels, visible_classes, visible_classes_test, train, val, sampler, _, cls_map, cls_map_test = get_split(
+#             config)
+#         assert (visible_classes_test.shape[0] == config['dis']['out_dim_cls'] - 1)
+#         print('seen_classes', vals_cls)
+#         print('novel_classes', valu_cls)
+#         print('all_labels', all_labels)
+#         print('visible_classes', visible_classes)
+#         print('visible_classes_test', visible_classes_test)
+#         print('train', train[:10], len(train))
+#         print('val', val[:10], len(val))
+#         print('cls_map', cls_map)
+#         print('cls_map_test', cls_map_test)
 
         # Define Dataloader
         kwargs = {"num_workers": args.workers, "pin_memory": True}
@@ -588,14 +588,14 @@ def main():
     parser.add_argument(
         "--resume",
         type=str,
-        default="checkpoint/190_model.pth.tar",
+        default="run/pascal/pascal_2_unseen/experiment_1/200_model.pth.tar",
         help="put the path to resuming file if needed",
     )
 
     parser.add_argument(
         "--checkname",
         type=str,
-        default="gmmn_pascal_w2c300_linear_weighted100_hs256_2_unseen",
+        default="gmmn_pascal_w2c300_linear_weighted100_hs256_2_unseen_not_filtering",
     )
 
     # false if embedding resume
@@ -668,6 +668,13 @@ def main():
         type=bool,
         default=False,
         help="filter unseen classes",
+    )
+    
+    parser.add_argument(
+        '--config',
+        type=str,
+        default='configs/voc12_finetune.yaml',
+        help='configuration file for train/val',
     )
 
     args = parser.parse_args()

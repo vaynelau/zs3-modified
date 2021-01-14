@@ -16,7 +16,7 @@ from zs3.utils.metrics import Evaluator
 from zs3.utils.saver import Saver
 from zs3.utils.summaries import TensorboardSummary
 from zs3.parsing import get_parser
-from zs3.exp_data import CLASSES_NAMES
+from zs3.exp_data import COCO_CLASSES_NAMES
 from zs3.tools import logWritter, scores_gzsl, get_split, get_config
 
 
@@ -52,7 +52,7 @@ class Trainer:
         (self.train_loader, self.val_loader, _, self.nclass,) = make_data_loader(
             args, load_embedding=args.load_embedding, w2c_size=args.w2c_size, **kwargs
         )
-        print('self.nclass', self.nclass)  # 33
+        print('self.nclass', self.nclass)  # 182
 
         model = DeepLab(
             num_classes=self.nclass,
@@ -299,14 +299,14 @@ class Trainer:
                 # Show 10 * 3 inference results each epoch
                 if i % (num_img_tr // 10) == 0:
                     global_step = i + num_img_tr * epoch
-                    self.summary.visualize_image(
-                        self.writer,
-                        self.args.dataset,
-                        image,
-                        target,
-                        output,
-                        global_step,
-                    )
+#                     self.summary.visualize_image(
+#                         self.writer,
+#                         self.args.dataset,
+#                         image,
+#                         target,
+#                         output,
+#                         global_step,
+#                     )
 
         self.writer.add_scalar("train/total_loss_epoch", train_loss, epoch)
         print(
@@ -347,6 +347,8 @@ class Trainer:
         logger = logWritter(log_file)
 
         for i, sample in enumerate(tbar):
+#             if i == 50:
+#                 break
             image, target, embedding = (
                 sample["image"],
                 sample["label"],
@@ -454,7 +456,7 @@ class Trainer:
         )
 
         for class_name, acc_value, mIoU_value in zip(
-            CLASSES_NAMES, Acc_class_by_class, mIoU_by_class
+            COCO_CLASSES_NAMES, Acc_class_by_class, mIoU_by_class
         ):
             self.writer.add_scalar("Acc_by_class/" + class_name, acc_value, epoch)
             self.writer.add_scalar("mIoU_by_class/" + class_name, mIoU_value, epoch)
@@ -481,25 +483,25 @@ class Trainer:
         )
 
         global_step = epoch + 1
-        for idx_unseen_class in args.unseen_classes_idx_metric:
-            if len(saved_images[idx_unseen_class]) > 0:
-                nb_image = len(saved_images[idx_unseen_class])
-                if nb_image > args.saved_validation_images:
-                    nb_image = args.saved_validation_images
-                for i in range(nb_image):
-                    self.summary.visualize_image_validation(
-                        self.writer,
-                        self.args.dataset,
-                        saved_images[idx_unseen_class][i],
-                        saved_target[idx_unseen_class][i],
-                        saved_prediction[idx_unseen_class][i],
-                        global_step,
-                        name="validation_"
-                        + CLASSES_NAMES[idx_unseen_class]
-                        + "_"
-                        + str(i),
-                        nb_image=1,
-                    )
+#         for idx_unseen_class in args.unseen_classes_idx_metric:
+#             if len(saved_images[idx_unseen_class]) > 0:
+#                 nb_image = len(saved_images[idx_unseen_class])
+#                 if nb_image > args.saved_validation_images:
+#                     nb_image = args.saved_validation_images
+#                 for i in range(nb_image):
+#                     self.summary.visualize_image_validation(
+#                         self.writer,
+#                         self.args.dataset,
+#                         saved_images[idx_unseen_class][i],
+#                         saved_target[idx_unseen_class][i],
+#                         saved_prediction[idx_unseen_class][i],
+#                         global_step,
+#                         name="validation_"
+#                         + COCO_CLASSES_NAMES[idx_unseen_class]
+#                         + "_"
+#                         + str(i),
+#                         nb_image=1,
+#                     )
 
         self.evaluator.reset()
 
@@ -514,7 +516,7 @@ def main():
     parser.add_argument(
         "--dataset",
         type=str,
-        default="context",
+        default="coco",
         choices=["pascal", "coco", "cityscapes"],
         help="dataset name (default: pascal)",
     )
@@ -558,20 +560,20 @@ def main():
     parser.add_argument(
         "--imagenet_pretrained_path",
         type=str,
-        default="checkpoint/resnet_backbone_pretrained_imagenet_wo_pascalcontext.pth.tar",
+        default="checkpoint/spnet_cocostuff_init.pth",
     )
 
     parser.add_argument(
         "--resume",
         type=str,
-        default="run/context/context_4_unseen_not_filter_unseen_classes/experiment_0/190_model.pth.tar",
+        default="run/coco/coco_15_unseen_no_filtering/experiment_1/30_model.pth.tar",
         help="put the path to resuming file if needed",
     )
 
     parser.add_argument(
         "--checkname",
         type=str,
-        default="gmmn_context_w2c300_linear_weighted100_hs256_4_unseen_not_filtering",
+        default="gmmn_coco_15_unseen_filtering_5",
     )
 
     # false if embedding resume
@@ -588,7 +590,7 @@ def main():
     # 2 unseen
     # unseen_names = ["cow", "motorbike"]
     # 4 unseen
-    unseen_names = ['cow', 'motorbike', 'sofa', 'cat']
+    # unseen_names = ['cow', 'motorbike', 'sofa', 'cat']
     # 6 unseen
     # unseen_names = ['cow', 'motorbike', 'sofa', 'cat', 'boat', 'fence']
     # 8 unseen
@@ -596,12 +598,16 @@ def main():
     # 10 unseen
     # unseen_names = ['cow', 'motorbike', 'sofa', 'cat', 'boat', 'fence', 'bird', 'tvmonitor', 'aeroplane', 'keyboard']
 
+    # 15 unseen
+    unseen_names = ['frisbee', 'skateboard', 'cardboard', 'carrot', 'scissors', 'suitcase', 'giraffe', 'cow', 'road',
+                    'wall-concrete', 'tree', 'grass', 'river', 'clouds', 'playingfield']
+
     unseen_classes_idx_metric = []
     for name in unseen_names:
-        unseen_classes_idx_metric.append(CLASSES_NAMES.index(name))
+        unseen_classes_idx_metric.append(COCO_CLASSES_NAMES.index(name))
 
     ### FOR METRIC COMPUTATION IN ORDER TO GET PERFORMANCES FOR TWO SETS
-    seen_classes_idx_metric = np.arange(33)
+    seen_classes_idx_metric = np.arange(182)
 
     seen_classes_idx_metric = np.delete(
         seen_classes_idx_metric, unseen_classes_idx_metric
@@ -614,7 +620,7 @@ def main():
     )
 
     parser.add_argument(
-        "--unseen_weight", type=int, default=10, help="number of output channels"
+        "--unseen_weight", type=int, default=5, help="number of output channels"
     )
 
     parser.add_argument(
@@ -654,7 +660,7 @@ def main():
     parser.add_argument(
         '--config',
         type=str,
-        default='configs/context_finetune.yaml',
+        default='configs/cocostuff_finetune.yaml',
         help='configuration file for train/val',
     )
 

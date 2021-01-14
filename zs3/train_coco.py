@@ -17,14 +17,13 @@ from zs3.utils.saver import Saver
 from zs3.utils.summaries import TensorboardSummary
 from zs3.parsing import get_parser
 from zs3.exp_data import COCO_CLASSES_NAMES
-from zs3.base_trainer import BaseTrainer
+from zs3.base_trainer import BaseTrainer, resize_target
 from zs3.tools import logWritter, scores_gzsl, get_split, get_config
 
 
 class Trainer(BaseTrainer):
     def __init__(self, args):
         self.args = args
-
         # Define Saver
         self.saver = Saver(args)
         self.saver.save_experiment_config()
@@ -35,18 +34,18 @@ class Trainer(BaseTrainer):
         """
             Get dataLoader
         """
-        config = get_config(args.config)
-        vals_cls, valu_cls, all_labels, visible_classes, visible_classes_test, train, val, sampler, _, cls_map, cls_map_test = get_split(config)
-        assert (visible_classes_test.shape[0] == config['dis']['out_dim_cls'] - 1)
-        print('seen_classes', vals_cls)
-        print('novel_classes', valu_cls)
-        print('all_labels', all_labels)
-        print('visible_classes', visible_classes)
-        print('visible_classes_test', visible_classes_test)
-        print('train', train[:10], len(train))
-        print('val', val[:10], len(val))
-        print('cls_map', cls_map)
-        print('cls_map_test', cls_map_test)
+#         config = get_config(args.config)
+#         vals_cls, valu_cls, all_labels, visible_classes, visible_classes_test, train, val, sampler, _, cls_map, cls_map_test = get_split(config)
+#         assert (visible_classes_test.shape[0] == config['dis']['out_dim_cls'] - 1)
+#         print('seen_classes', vals_cls)
+#         print('novel_classes', valu_cls)
+#         print('all_labels', all_labels)
+#         print('visible_classes', sorted(visible_classes), len(visible_classes))
+#         print('visible_classes_test', sorted(visible_classes_test), len(visible_classes_test))
+#         print('train', train[:10], len(train))
+#         print('val', val[:10], len(val))
+#         print('cls_map', cls_map)
+#         print('cls_map_test', cls_map_test)
 
         # Define Dataloader
         kwargs = {"num_workers": args.workers, "pin_memory": True}
@@ -60,9 +59,10 @@ class Trainer(BaseTrainer):
             num_classes=self.nclass,
             output_stride=args.out_stride,
             sync_bn=args.sync_bn,
-            freeze_bn=args.freeze_bn,
+            freeze_bn=True,
             pretrained=args.imagenet_pretrained,
             imagenet_pretrained_path=args.imagenet_pretrained_path,
+            hidden = 600
         )
 
         train_params = [
@@ -97,7 +97,18 @@ class Trainer(BaseTrainer):
             mode=args.loss_type
         )
         self.model, self.optimizer = model, optimizer
-
+        if args.imagenet_pretrained_path is not None:
+            state_dict = torch.load(args.imagenet_pretrained_path)
+            if 'state_dict' in state_dict.keys():
+                self.model.load_state_dict(state_dict['state_dict'])
+            else:
+                #print(model.state_dict().keys())#['scale.layer1.conv1.conv.weight'])
+                #print(state_dict.items().keys())
+                new_dict = {}
+                for k,v in state_dict.items():
+                    #print(k[11:])
+                    new_dict[k[11:]] = v
+                self.model.load_state_dict(new_dict, strict=False)  # make strict=True to debug if checkpoint is loaded correctly or not if performance is low
         # Define Evaluator
         self.evaluator = Evaluator(self.nclass)
         # Define lr scheduler
@@ -137,14 +148,16 @@ class Trainer(BaseTrainer):
         tbar = tqdm(self.val_loader, desc="\r")
         test_loss = 0.0
         targets, outputs = [], []
-        log_file = './logs_context_step_1.txt'
+        log_file = './logs_coco_step_1.txt'
         logger = logWritter(log_file)
+        torch.set_printoptions(profile="full")
         for i, sample in enumerate(tbar):
             image, target = sample["image"], sample["label"]
             if self.args.cuda:
                 image, target = image.cuda(), target.cuda()
             with torch.no_grad():
                 output = self.model(image)
+            target = resize_target(target, s=output.size()[2:]).cuda()
             loss = self.criterion(output, target)
             test_loss += loss.item()
             tbar.set_description("Test loss: %.3f" % (test_loss / (i + 1)))
@@ -158,6 +171,8 @@ class Trainer(BaseTrainer):
                 targets.append(t)
             # Add batch sample into evaluator
             self.evaluator.add_batch(target, pred)
+#             if i == 100:
+#                 break
 
         config = get_config(args.config)
         vals_cls, valu_cls, all_labels, visible_classes, visible_classes_test, train, val, sampler, _, cls_map, cls_map_test = get_split(
@@ -184,6 +199,11 @@ class Trainer(BaseTrainer):
         logger.write("Test finished.\n\n")
 
         # Fast test during the training
+#         print('self.evaluator.confusion_matrix')
+#         for m in self.evaluator.confusion_matrix:
+#             for n in m:
+#                 print(n, end=' ')
+#             print()
         Acc = self.evaluator.Pixel_Accuracy()
         Acc_class, Acc_class_by_class = self.evaluator.Pixel_Accuracy_Class()
         mIoU, mIoU_by_class = self.evaluator.Mean_Intersection_over_Union()
@@ -268,7 +288,7 @@ def main():
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=16,
+        default=8,
         metavar="N",
         help="input batch size for training (default: auto)",
     )
@@ -282,7 +302,7 @@ def main():
     parser.add_argument(
         "--checkname",
         type=str,
-        default="coco_15_unseen_no_filtering",
+        default="coco_15_unseen_filtering_v2",
         help="set the checkpoint name",
     )
 
@@ -324,6 +344,13 @@ def main():
         help="filter unseen classes",
     )
     
+    parser.add_argument(
+        '--config',
+        type=str,
+        default='configs/cocostuff_finetune.yaml',
+        help='configuration file for train/val',
+    )
+    
     args = parser.parse_args()
     args.cuda = not args.no_cuda and torch.cuda.is_available()
     if args.cuda:
@@ -344,9 +371,10 @@ def main():
             "pascal": 50,
         }
         args.epochs = epoches[args.dataset.lower()]
-
+    print(args.batch_size)
     if args.batch_size is None:
         args.batch_size = 4 * len(args.gpu_ids)
+    args.batch_size
 
     if args.test_batch_size is None:
         args.test_batch_size = args.batch_size
@@ -366,7 +394,7 @@ def main():
     trainer = Trainer(args)
     print("Starting Epoch:", trainer.args.start_epoch)
     print("Total Epoches:", trainer.args.epochs)
-#     trainer.validation(0, args)
+    # trainer.validation(0, args)
     for epoch in range(trainer.args.start_epoch, trainer.args.epochs):
         trainer.training(epoch)
         if not trainer.args.no_val and epoch % args.eval_interval == (
