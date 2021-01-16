@@ -59,7 +59,7 @@ class Trainer(BaseTrainer):
             num_classes=self.nclass,
             output_stride=args.out_stride,
             sync_bn=args.sync_bn,
-            freeze_bn=True,
+            freeze_bn=False,
             pretrained=args.imagenet_pretrained,
             imagenet_pretrained_path=args.imagenet_pretrained_path,
             hidden = 600
@@ -229,8 +229,10 @@ class Trainer(BaseTrainer):
             print(COCO_CLASSES_NAMES[i], "- acc:", acc_value, " mIoU:", mIoU_value)
 
         new_pred = mIoU
-        is_best = True
-        self.best_pred = new_pred
+        is_best = False
+        if new_pred > self.best_pred:
+            is_best = True
+            self.best_pred = new_pred
         self.saver.save_checkpoint(
             {
                 "epoch": epoch + 1,
@@ -302,7 +304,7 @@ def main():
     parser.add_argument(
         "--checkname",
         type=str,
-        default="coco_15_unseen_filtering_v2",
+        default="coco_15_unseen_filtering_v3",
         help="set the checkpoint name",
     )
 

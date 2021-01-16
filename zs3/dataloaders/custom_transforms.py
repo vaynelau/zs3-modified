@@ -117,7 +117,8 @@ class FixScale:
         else:
             ow = self.crop_size
             oh = int(1.0 * h * ow / w)
-        img = img.resize((ow, oh), Image.BILINEAR)
-        mask = mask.resize((ow, oh), Image.NEAREST)
-
+#         img = img.resize((ow, oh), Image.BILINEAR)
+#         mask = mask.resize((ow, oh), Image.NEAREST)
+        img = img.resize((512, 512), Image.BILINEAR)
+        mask = mask.resize((512, 512), Image.NEAREST)
         return {"image": img, "label": mask}

@@ -96,14 +96,14 @@ class DeepLab(nn.Module):
         #x, low_level_feat = self.backbone(input)
         #x = self.aspp(x)
         h = self.layer1(input)
-        h = self.layer2(h)
-        h = self.layer3(h)
+        low_level_feat = self.layer2(h)
+        h = self.layer3(low_level_feat)
         h = self.layer4(h)
         h = self.layer5(h)
         h = self.aspp(h)
 
         
-        x = self.decoder(h)
+        x = self.decoder(h, low_level_feat)
 #         x = F.interpolate(x, size=input.size()[2:], mode="bilinear", align_corners=True)
         return x
 

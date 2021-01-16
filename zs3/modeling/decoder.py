@@ -8,12 +8,24 @@ from zs3.modeling.sync_batchnorm.batchnorm import SynchronizedBatchNorm2d
 class Decoder(nn.Module):
     def __init__(self, num_classes, BatchNorm, hidden = None):
         super().__init__()
-#         low_level_inplanes = 256
-#         self.conv1 = nn.Conv2d(low_level_inplanes, 48, 1, bias=False)
-#         self.bn1 = BatchNorm(48)
-#         self.relu = nn.ReLU()
+        low_level_inplanes = 256
+        self.conv1 = nn.Conv2d(low_level_inplanes, 48, 1, bias=False)
+        self.bn1 = BatchNorm(48)
+        self.relu = nn.ReLU()
+        self.last_conv = nn.Sequential(
+            nn.Conv2d(num_classes+48, num_classes, kernel_size=3, stride=1, padding=1, bias=False),
+            BatchNorm(num_classes),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Conv2d(num_classes, num_classes, kernel_size=3, stride=1, padding=1, bias=False),
+            BatchNorm(num_classes),
+            nn.ReLU(),
+            nn.Dropout(0.1),
+        )
+        self.pred_conv = nn.Conv2d(num_classes, num_classes, kernel_size=1, stride=1)
+
 #         self.last_conv = nn.Sequential(
-#             nn.Conv2d(304, 256, kernel_size=3, stride=1, padding=1, bias=False),
+#             nn.Conv2d(num_classes+48, 256, kernel_size=3, stride=1, padding=1, bias=False),
 #             BatchNorm(256),
 #             nn.ReLU(),
 #             nn.Dropout(0.5),
@@ -22,24 +34,23 @@ class Decoder(nn.Module):
 #             nn.ReLU(),
 #             nn.Dropout(0.1),
 #         )
-
-        #self.pred_conv = nn.Conv2d(256, num_classes, kernel_size=1, stride=1)
-        if hidden is not None:
-            self.pred_conv = nn.Conv2d(hidden, num_classes, kernel_size=1, stride=1)
-        else:
-            self.pred_conv = nn.Conv2d(num_classes, num_classes, kernel_size=1, stride=1)
+#         self.pred_conv = nn.Conv2d(256, num_classes, kernel_size=1, stride=1)
+#         if hidden is not None:
+#             self.pred_conv = nn.Conv2d(hidden, num_classes, kernel_size=1, stride=1)
+#         else:
+#             self.pred_conv = nn.Conv2d(num_classes, num_classes, kernel_size=1, stride=1)
         self._init_weight()
 
-    def forward(self, x):
-#         low_level_feat = self.conv1(low_level_feat)
-#         low_level_feat = self.bn1(low_level_feat)
-#         low_level_feat = self.relu(low_level_feat)
+    def forward(self, x, low_level_feat):
+        low_level_feat = self.conv1(low_level_feat)
+        low_level_feat = self.bn1(low_level_feat)
+        low_level_feat = self.relu(low_level_feat)
 
-#         x = F.interpolate(
-#             x, size=low_level_feat.size()[2:], mode="bilinear", align_corners=True
-#         )
-#         x = torch.cat((x, low_level_feat), dim=1)
-#         x = self.last_conv(x)
+        x = F.interpolate(
+            x, size=low_level_feat.size()[2:], mode="bilinear", align_corners=True
+        )
+        x = torch.cat((x, low_level_feat), dim=1)
+        x = self.last_conv(x)
         x = self.pred_conv(x)
         return x
 

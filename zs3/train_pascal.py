@@ -59,7 +59,7 @@ class Trainer(BaseTrainer):
             num_classes=self.nclass,
             output_stride=args.out_stride,
             sync_bn=args.sync_bn,
-            freeze_bn=True,
+            freeze_bn=False,
             pretrained=args.imagenet_pretrained,
             imagenet_pretrained_path=args.imagenet_pretrained_path,
         )
@@ -222,8 +222,10 @@ class Trainer(BaseTrainer):
             print(class_names[i], "- acc:", acc_value, " mIoU:", mIoU_value)
 
         new_pred = mIoU
-        is_best = True
-        self.best_pred = new_pred
+        is_best = False
+        if new_pred > self.best_pred:
+            is_best = True
+            self.best_pred = new_pred
         self.saver.save_checkpoint(
             {
                 "epoch": epoch + 1,
@@ -263,8 +265,8 @@ def main():
         default=False,
         help="whether to use SBD dataset (default: True)",
     )
-    parser.add_argument("--base-size", type=int, default=312, help="base image size")
-    parser.add_argument("--crop-size", type=int, default=312, help="crop image size")
+    parser.add_argument("--base-size", type=int, default=513, help="base image size")
+    parser.add_argument("--crop-size", type=int, default=368, help="crop image size")
     parser.add_argument(
         "--loss-type",
         type=str,
@@ -309,7 +311,7 @@ def main():
     parser.add_argument(
         "--checkname",
         type=str,
-        default="pascal_2_unseen_v2",
+        default="pascal_resize",
         help="set the checkpoint name",
     )
 
